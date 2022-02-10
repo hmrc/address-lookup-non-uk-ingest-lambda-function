@@ -1,12 +1,12 @@
-ThisBuild / version := "0.1.0-SNAPSHOT"
-
+ThisBuild / name := "address-lookup-non-uk-ingest-lambda-function"
+ThisBuild / version := "1.0"
 ThisBuild / scalaVersion := "2.12.14"
+ThisBuild / assemblyJarName := "address-lookup-non-uk-ingest-lambda-function_2.12-1.0.jar"
 
 val doobieVersion = "0.7.1"
 
 lazy val root = (project in file("."))
   .settings(
-    name := "address-lookup-international-addresses-ingest-lambda-function",
     libraryDependencies ++= Seq(
       "com.typesafe.play" %% "play-json" % "2.8.2",
       "com.amazonaws" % "aws-lambda-java-core" % "1.1.0",
