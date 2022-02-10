@@ -1,26 +1,21 @@
-import uk.gov.hmrc.DefaultBuildSettings.integrationTestSettings
-import uk.gov.hmrc.sbtdistributables.SbtDistributablesPlugin.publishingSettings
+ThisBuild / name := "address-lookup-non-uk-ingest-lambda-function"
+ThisBuild / version := "1.0"
+ThisBuild / scalaVersion := "2.12.14"
 
-val appName = "address-lookup-non-uk-ingest-lambda-function"
+ThisBuild / assemblyJarName := "address-lookup-non-uk-ingest-lambda-function_2.12-1.0.jar"
 
-val silencerVersion = "1.7.5"
+val doobieVersion = "0.7.1"
 
-lazy val microservice = Project(appName, file("."))
-  .enablePlugins(play.sbt.PlayScala, SbtDistributablesPlugin)
+lazy val root = (project in file("."))
   .settings(
-    majorVersion                     := 0,
-    scalaVersion                     := "2.12.14",
-    libraryDependencies              ++= AppDependencies.compile ++ AppDependencies.test,
-    // ***************
-    // Use the silencer plugin to suppress warnings
-    scalacOptions += "-P:silencer:pathFilters=routes",
     libraryDependencies ++= Seq(
-      compilerPlugin("com.github.ghik" % "silencer-plugin" % silencerVersion cross CrossVersion.full),
-      "com.github.ghik" % "silencer-lib" % silencerVersion % Provided cross CrossVersion.full
+      "com.typesafe.play" %% "play-json" % "2.8.2",
+      "com.amazonaws" % "aws-lambda-java-core" % "1.1.0",
+      "me.lamouri" % "jcredstash" % "2.1.1",
+      "com.lihaoyi" %% "os-lib" % "0.7.1",
+      "ch.qos.logback" % "logback-core" % "1.2.3",
+      "org.tpolecat" %% "doobie-core" % doobieVersion,
+      "org.tpolecat" %% "doobie-hikari" % doobieVersion,
+      "org.tpolecat" %% "doobie-postgres" % doobieVersion,
     )
-    // ***************
   )
-  .settings(publishingSettings: _*)
-  .configs(IntegrationTest)
-  .settings(integrationTestSettings(): _*)
-  .settings(resolvers += Resolver.jcenterRepo)
