@@ -1,8 +1,6 @@
 package model
 
 import doobie.{Read, Write}
-import play.api.libs.json.Json._
-import play.api.libs.json._
 
 case class Properties(id: Option[String],
                       hash: Option[String],
@@ -15,8 +13,6 @@ case class Properties(id: Option[String],
                       postcode: Option[String])
 
 object Properties {
-  implicit val propertiesReads: Reads[Properties] = reads[Properties]
-  implicit val propertiesWrites: Writes[Properties] = writes[Properties]
 
   // These are not working as expected - wip
   implicit val propertiesDbRead: Read[Properties] =
@@ -100,8 +96,4 @@ object SqlProperties {
 
 case class GeoJson(`type`: String, properties: Properties)
 
-object GeoJson {
-
-  implicit val geoJsonReads: Reads[GeoJson] = reads[GeoJson]
-  implicit val geoJsonWrites: Writes[GeoJson] = writes[GeoJson]
-}
+object GeoJson {}

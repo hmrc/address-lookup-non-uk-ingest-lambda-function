@@ -1,19 +1,18 @@
 package repositories
 
 import cats.effect.{IO, Resource}
-import doobie.implicits._
-import doobie.util.fragment.Fragment.{const => csql}
+import com.amazonaws.services.s3.AmazonS3ClientBuilder
+import com.amazonaws.services.s3.model.ListObjectsV2Request
+import com.fasterxml.jackson.databind.ObjectMapper
 import doobie._
+import doobie.implicits._
 import model.{GeoJson, SqlProperties}
 import org.slf4j.LoggerFactory
-import play.api.libs.json.Json
 import repositories.Repository.Credentials
 
 import java.io.File
-import java.time.format.DateTimeFormatter
-import java.time.{LocalDateTime, ZoneId}
-import scala.concurrent.Future
 import scala.io.{BufferedSource, Source}
+import scala.util.Try
 
 class IngestRepository(transactor: => Transactor[IO],
                        private val credentials: Credentials) {
@@ -57,9 +56,23 @@ class IngestRepository(transactor: => Transactor[IO],
       res <- Fragment.const(ddl).update.run.transact(transactor)
     } yield res
 
+  def ingestFilesFromS3(s3Bucket: String,
+                        schemaName: String,
+                        countryDataDir: String): IO[Int] = {
+    val listObjectsRequest = new ListObjectsV2Request()
+      .withBucketName(s3Bucket)
+      .withPrefix("collection-global")
+      .withMaxKeys(Integer.MAX_VALUE)
+    val listObjectsV2Result =
+      AmazonS3ClientBuilder.defaultClient().listObjectsV2(listObjectsRequest)
+    listObjectsV2Result.getObjectSummaries
+    ???
+  }
+
   def ingestFiles(schemaName: String, countryDataDir: String): IO[Int] = {
     IO {
       println(s""">>> ingestFiles($schemaName, $countryDataDir)""")
+      val mapper = new ObjectMapper()
 
       val filesOfInterest = os
         .walk(path = os.Path(countryDataDir))
@@ -75,33 +88,38 @@ class IngestRepository(transactor: => Transactor[IO],
 
       println(s">>> filesOfInterest: ${filesOfInterest}")
 
-      filesOfInterest
-    }.flatMap { coToFilesMap =>
-      coToFilesMap
-        .map {
-          case (countryCode, files) =>
-            println(s">>> countryCode: ${countryCode}, files: ${files.length}")
-            initialiseCountryTableInSchema(schemaName, countryCode)
-              .flatMap { _ =>
-                files
-                  .map { f =>
-                    ingestFile(s"$schemaName.$countryCode", s"$f")
-                  }
-                  .toSeq
-                  .fold(IO(0)) {
-                    case (aio, bio) =>
-                      for { a <- aio; b <- bio } yield a + b
-                  }
-              }
-        }
-        .toSeq
-        .fold(IO(0)) {
-          case (aio, bio) => for { a <- aio; b <- bio } yield a + b
-        }
+      (mapper, filesOfInterest)
+    }.flatMap {
+      case (mapper, coToFilesMap) =>
+        coToFilesMap
+          .map {
+            case (countryCode, files) =>
+              println(
+                s">>> countryCode: ${countryCode}, files: ${files.length}"
+              )
+              initialiseCountryTableInSchema(schemaName, countryCode)
+                .flatMap { _ =>
+                  files
+                    .map { f =>
+                      ingestFile(s"$schemaName.$countryCode", s"$f", mapper)
+                    }
+                    .toSeq
+                    .fold(IO(0)) {
+                      case (aio, bio) =>
+                        for { a <- aio; b <- bio } yield a + b
+                    }
+                }
+          }
+          .toSeq
+          .fold(IO(0)) {
+            case (aio, bio) => for { a <- aio; b <- bio } yield a + b
+          }
     }
   }
 
-  def ingestFile(table: String, filePath: String): IO[Int] = {
+  def ingestFile(table: String,
+                 filePath: String,
+                 mapper: ObjectMapper): IO[Int] = {
     import model.GeoJson._
 
     println(s">>> Ingest international file $filePath into table $table")
@@ -112,8 +130,7 @@ class IngestRepository(transactor: => Transactor[IO],
       )
       .use[Int] { in =>
         in.getLines()
-          .map(l => Json.parse(l))
-          .flatMap(gj => Json.fromJson[GeoJson](gj).asOpt)
+          .flatMap(l => Try(mapper.readValue(l, classOf[GeoJson])).toOption)
           .map { gj =>
             val p = SqlProperties(gj.properties)
             Fragment
