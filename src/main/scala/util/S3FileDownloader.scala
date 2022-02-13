@@ -1,5 +1,6 @@
 package util
 
+import com.amazonaws.regions.Regions
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import com.amazonaws.services.s3.model.{
   ListObjectsV2Request,
@@ -19,7 +20,8 @@ class S3FileDownloader(fromBucket: String,
 
   def downloadFiles(): Int =
     if (!areFilesAlreadyDownloaded) {
-      val client = AmazonS3ClientBuilder.defaultClient()
+      val client =
+        AmazonS3ClientBuilder.standard().withRegion(Regions.EU_WEST_2).build()
 
       val fileKeysToDownload = getFileKeysToDownload
       fileKeysToDownload.par.foreach { key =>

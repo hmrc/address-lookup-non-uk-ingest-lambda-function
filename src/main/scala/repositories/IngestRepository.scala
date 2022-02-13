@@ -1,29 +1,27 @@
 package repositories
 
 import cats.effect.{IO, Resource}
+import cats.implicits._
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import com.amazonaws.services.s3.model.ListObjectsV2Request
-import com.fasterxml.jackson.databind.ObjectMapper
 import doobie._
 import doobie.implicits._
-import model.{GeoJson, SqlProperties}
-import org.slf4j.LoggerFactory
+import doobie.postgres.{PFCM, PHC}
+import os.Path
 import repositories.Repository.Credentials
 
-import java.io.File
-import scala.io.{BufferedSource, Source}
-import scala.util.Try
+import java.io.{File, FileInputStream, InputStream}
+import scala.io.Source
 
 class IngestRepository(transactor: => Transactor[IO],
                        private val credentials: Credentials) {
-  private val logger = LoggerFactory.getLogger(classOf[IngestRepository])
 
   private val rootDir: String = {
     if (new File(credentials.csvBaseDir).isAbsolute) credentials.csvBaseDir
     else os.pwd.toString + "/" + credentials.csvBaseDir
   }
 
-  def ingest(): IO[Int] = {
+  def ingest(): IO[Long] = {
     for {
       _ <- printLine(s""">>> ingest() beginning""")
       schemaName <- findCurrentSchema()
@@ -38,7 +36,7 @@ class IngestRepository(transactor: => Transactor[IO],
   private def findCurrentSchema(): IO[String] =
     for {
       _ <- printLine(s">>> findCurrentSchema() beginning")
-      res <- sql"SELECT schema_name FROM public.address_lookup_status WHERE status = 'finalised'"
+      res <- sql"SELECT schema_name FROM public.address_lookup_status WHERE status = 'finalised' ORDER BY timestamp DESC LIMIT 1"
         .query[String]
         .unique
         .transact(transactor)
@@ -47,7 +45,7 @@ class IngestRepository(transactor: => Transactor[IO],
   def initialiseCountryTableInSchema(schemaName: String,
                                      countryCode: String): IO[Int] =
     for {
-      rawDdl <- resourceAsString("/create_table_ddl.sql")
+      rawDdl <- resourceAsString("/create_raw_table_ddl.sql")
       ddl <- IO {
         rawDdl
           .replace("__schema__", schemaName)
@@ -69,107 +67,86 @@ class IngestRepository(transactor: => Transactor[IO],
     ???
   }
 
-  def ingestFiles(schemaName: String, countryDataDir: String): IO[Int] = {
-    IO {
-      println(s""">>> ingestFiles($schemaName, $countryDataDir)""")
-      val mapper = new ObjectMapper()
+  def ingestFiles(schemaName: String, countryDataDir: String): IO[Long] =
+    for {
+      _ <- printLine(s""">>> ingestFiles($schemaName, $countryDataDir)""")
+      filesOfInterest <- getCountryToFilesOfInterestMap(countryDataDir)
+      _ <- printLine(s">>> filesOfInterest: ${filesOfInterest}")
+      res <- processCountryFiles(schemaName, filesOfInterest)
+    } yield res
 
-      val filesOfInterest = os
-        .walk(path = os.Path(countryDataDir))
-        .filter { p =>
-          p.toIO.getName.endsWith("geojson")
-        }
-        .filter(_.toString().contains("/bm/"))
-        .groupBy { p =>
-          val countriesDir = p.toString().replace(countryDataDir, "")
-          val seg = os.Path(countriesDir).getSegment(0)
-          seg
-        }
-
-      println(s">>> filesOfInterest: ${filesOfInterest}")
-
-      (mapper, filesOfInterest)
-    }.flatMap {
-      case (mapper, coToFilesMap) =>
-        coToFilesMap
-          .map {
-            case (countryCode, files) =>
-              println(
-                s">>> countryCode: ${countryCode}, files: ${files.length}"
-              )
-              initialiseCountryTableInSchema(schemaName, countryCode)
-                .flatMap { _ =>
-                  files
-                    .map { f =>
-                      ingestFile(s"$schemaName.$countryCode", s"$f", mapper)
-                    }
-                    .toSeq
-                    .fold(IO(0)) {
-                      case (aio, bio) =>
-                        for { a <- aio; b <- bio } yield a + b
-                    }
+  private def processCountryFiles(
+    schemaName: String,
+    coToFilesMap: Map[String, Seq[Path]]
+  ): IO[Long] = {
+    coToFilesMap
+      .map {
+        case (countryCode, files) =>
+          println(s">>> countryCode: ${countryCode}, files: ${files.length}")
+          initialiseCountryTableInSchema(schemaName, countryCode)
+            .flatMap { _ =>
+              files
+                .map { f =>
+                  ingestFile(schemaName, countryCode, s"$f")
                 }
-          }
-          .toSeq
-          .fold(IO(0)) {
-            case (aio, bio) => for { a <- aio; b <- bio } yield a + b
-          }
-    }
+                .fold(IO(0L)) {
+                  case (aio, bio) =>
+                    for { a <- aio; b <- bio } yield a + b
+                }
+            }
+            .flatMap { _ =>
+              createMaterializedView(schemaName, countryCode)
+            }
+      }
+      .toList
+      .sequence
+      .map((x: List[Long]) => x.sum)
   }
 
-  def ingestFile(table: String,
-                 filePath: String,
-                 mapper: ObjectMapper): IO[Int] = {
-    import model.GeoJson._
-
-    println(s">>> Ingest international file $filePath into table $table")
-
-    Resource
-      .make[IO, BufferedSource](IO(Source.fromFile(filePath, "utf-8")))(
-        s => IO(s.close())
-      )
-      .use[Int] { in =>
-        in.getLines()
-          .flatMap(l => Try(mapper.readValue(l, classOf[GeoJson])).toOption)
-          .map { gj =>
-            val p = SqlProperties(gj.properties)
-            Fragment
-              .const(s"""INSERT INTO $table (id, hash, number, street, unit, city, district, region, postcode) 
-                     |VALUES (${p.id},
-                     |${p.hash},
-                     |${p.number}, 
-                     |${p.street}, 
-                     |${p.unit}, 
-                     |${p.city}, 
-                     |${p.district}, 
-                     |${p.region}, 
-                     |${p.postcode})""".stripMargin)
-              .update
-              .run
-              .transact(transactor)
-          }
-          .fold(IO(0)) {
-            case (aio, bio) =>
-              for {
-                a <- aio
-                b <- bio
-              } yield a + b
-          }
+  private def getCountryToFilesOfInterestMap(
+    countryDataDir: String
+  ): IO[Map[String, Seq[Path]]] = IO {
+    os.walk(path = os.Path(countryDataDir))
+      .filter { p =>
+        p.toIO.getName.endsWith("geojson")
+      }
+      .groupBy { p =>
+        val countriesDir = p.toString().replace(countryDataDir, "")
+        val seg = os.Path(countriesDir).getSegment(0)
+        seg
       }
   }
 
-  private def cleanupOldEpochDirectories(proceed: Boolean,
-                                         epoch: String): Unit = {
-    if (proceed) {
-      os.walk(
-          path = os.Path(rootDir),
-          skip = p => p.baseName == epoch,
-          maxDepth = 1
+  def ingestFile(schemaName: String,
+                 table: String,
+                 filePath: String): IO[Long] =
+    for {
+      _ <- printLine(
+        s">>> Ingest international file $filePath into table $table"
+      )
+      resrc <- IO(
+        Resource.make[IO, InputStream](IO(new FileInputStream(filePath)))(
+          s => IO(s.close())
         )
-        .filter(_.toIO.isDirectory)
-        .foreach(os.remove.all)
-    }
-  }
+      )
+      copySql <- resourceAsString("/raw_copy.sql").map(
+        s =>
+          s.replaceAll("__schema__", schemaName).replaceAll("__table__", table)
+      )
+      res <- resrc.use[Long] { in =>
+        PHC.pgGetCopyAPI(PFCM.copyIn(copySql, in)).transact(transactor)
+      }
+    } yield res
+
+  def createMaterializedView(schemaName: String, table: String): IO[Long] =
+    for {
+      _ <- printLine(s">>> Creating materialized view $table")
+      ddlSql <- resourceAsString("/create_table_ddl.sql").map(
+        s =>
+          s.replaceAll("__schema__", schemaName).replaceAll("__table__", table)
+      )
+      res <- Fragment.const(ddlSql).update.run.transact(transactor)
+    } yield res
 
   private def resourceAsString(name: String): IO[String] = {
     Resource

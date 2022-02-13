@@ -3,7 +3,6 @@ package lambdas
 import com.amazonaws.services.lambda.runtime.{Context, RequestHandler}
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import com.amazonaws.services.s3.model.ListObjectsV2Request
-import org.slf4j.LoggerFactory
 import repositories.{IngestRepository, Repository}
 import util.timed
 
@@ -13,21 +12,19 @@ import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
 
 class InternationalAddressesIngestLambdaFunction
-    extends RequestHandler[jMap[String, Any], Int] {
-  private val logger =
-    LoggerFactory.getLogger(classOf[InternationalAddressesIngestLambdaFunction])
+    extends RequestHandler[jMap[String, Any], Long] {
 
   override def handleRequest(data: jMap[String, Any],
-                             contextNotUsed: Context): Int = {
-    val inputs: Map[String, Any] = data.asScala.asInstanceOf[Map[String, Any]]
+                             contextNotUsed: Context): Long = {
+    val inputs: Map[String, Any] = data.asScala.toMap
 
     Await
-      .result(doIngest(Repository().forIngest, inputs), 50.seconds)
+      .result(doIngest(Repository().forIngest, inputs), 15.minutes)
   }
 
   private[lambdas] def doIngest(repository: IngestRepository,
-                                inputs: Map[String, Any]): Future[Int] = {
-    logger.info(s"Beginning ingest of international addresses")
+                                inputs: Map[String, Any]): Future[Long] = {
+    println(s"Beginning ingest of international addresses")
 
     repository.ingest().unsafeToFuture()
   }

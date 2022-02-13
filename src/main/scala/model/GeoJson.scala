@@ -12,60 +12,60 @@ case class Properties(id: Option[String],
                       region: Option[String],
                       postcode: Option[String])
 
-object Properties {
-
-  // These are not working as expected - wip
-  implicit val propertiesDbRead: Read[Properties] =
-    Read[
-      (Option[String],
-       Option[String],
-       Option[String],
-       Option[String],
-       Option[String],
-       Option[String],
-       Option[String],
-       Option[String],
-       Option[String])
-    ].map {
-      case (id, hash, number, street, unit, city, district, region, postcode) =>
-        Properties(
-          id = id,
-          hash = hash,
-          number = number,
-          street = street,
-          unit = unit,
-          city = city,
-          district = district,
-          region = region,
-          postcode = postcode
-        )
-    }
-
-  implicit val propertiesDbWrite: Write[Properties] =
-    Write[
-      (Option[String],
-       Option[String],
-       Option[String],
-       Option[String],
-       Option[String],
-       Option[String],
-       Option[String],
-       Option[String],
-       Option[String])
-    ].contramap { p =>
-      (
-        p.id,
-        p.hash,
-        p.number,
-        p.street,
-        p.unit,
-        p.city,
-        p.district,
-        p.region,
-        p.postcode
-      )
-    }
-}
+//object Properties {
+//
+//  // These are not working as expected - wip
+//  implicit val propertiesDbRead: Read[Properties] =
+//    Read[
+//      (Option[String],
+//       Option[String],
+//       Option[String],
+//       Option[String],
+//       Option[String],
+//       Option[String],
+//       Option[String],
+//       Option[String],
+//       Option[String])
+//    ].map {
+//      case (id, hash, number, street, unit, city, district, region, postcode) =>
+//        Properties(
+//          id = id,
+//          hash = hash,
+//          number = number,
+//          street = street,
+//          unit = unit,
+//          city = city,
+//          district = district,
+//          region = region,
+//          postcode = postcode
+//        )
+//    }
+//
+//  implicit val propertiesDbWrite: Write[Properties] =
+//    Write[
+//      (Option[String],
+//       Option[String],
+//       Option[String],
+//       Option[String],
+//       Option[String],
+//       Option[String],
+//       Option[String],
+//       Option[String],
+//       Option[String])
+//    ].contramap { p =>
+//      (
+//        p.id,
+//        p.hash,
+//        p.number,
+//        p.street,
+//        p.unit,
+//        p.city,
+//        p.district,
+//        p.region,
+//        p.postcode
+//      )
+//    }
+//}
 
 case class SqlProperties(id: String,
                          hash: String,
@@ -95,5 +95,3 @@ object SqlProperties {
 }
 
 case class GeoJson(`type`: String, properties: Properties)
-
-object GeoJson {}
