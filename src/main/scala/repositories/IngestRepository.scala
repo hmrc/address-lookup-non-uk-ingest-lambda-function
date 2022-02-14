@@ -89,18 +89,20 @@ class IngestRepository(transactor: => Transactor[IO],
                 .map { f =>
                   ingestFile(schemaName, countryCode, s"$f")
                 }
-                .fold(IO(0L)) {
-                  case (aio, bio) =>
-                    for { a <- aio; b <- bio } yield a + b
-                }
+                .toList
+                .sequence
+                .map(_.sum)
             }
             .flatMap { _ =>
               createMaterializedView(schemaName, countryCode)
             }
+            .flatMap { _ =>
+              createPublicView(schemaName, countryCode)
+            }
       }
       .toList
       .sequence
-      .map((x: List[Long]) => x.sum)
+      .map(_.sum)
   }
 
   private def getCountryToFilesOfInterestMap(
@@ -141,7 +143,17 @@ class IngestRepository(transactor: => Transactor[IO],
   def createMaterializedView(schemaName: String, table: String): IO[Long] =
     for {
       _ <- printLine(s">>> Creating materialized view $table")
-      ddlSql <- resourceAsString("/create_table_ddl.sql").map(
+      ddlSql <- resourceAsString("/create_view_ddl.sql").map(
+        s =>
+          s.replaceAll("__schema__", schemaName).replaceAll("__table__", table)
+      )
+      res <- Fragment.const(ddlSql).update.run.transact(transactor)
+    } yield res
+
+  def createPublicView(schemaName: String, table: String): IO[Long] =
+    for {
+      _ <- printLine(s">>> Creating public view $table")
+      ddlSql <- resourceAsString("/create_public_view_ddl.sql").map(
         s =>
           s.replaceAll("__schema__", schemaName).replaceAll("__table__", table)
       )

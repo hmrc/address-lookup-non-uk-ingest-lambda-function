@@ -15,7 +15,7 @@ class InternationalAddressesFileDownloadLambdaFunction
 
   private[lambdas] def doDownload(bucketName: String,
                                   outputBasePath: String): Int = {
-    println(s"Beginning ingest of international addresses")
+    println(s"Beginning download of international addresses")
 
     new S3FileDownloader(bucketName, outputBasePath).downloadFiles()
 
