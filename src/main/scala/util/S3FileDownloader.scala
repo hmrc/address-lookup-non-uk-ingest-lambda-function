@@ -6,20 +6,25 @@ import com.amazonaws.services.s3.model.{
   ListObjectsV2Request,
   S3ObjectInputStream
 }
+import os.Path
 import util.S3FileDownloader.countriesOfInterest
 
 import java.io.{BufferedOutputStream, FileOutputStream}
-import java.nio.file.Paths
+import java.nio.file.{Files, Paths}
 import scala.collection.JavaConverters._
 
 class S3FileDownloader(fromBucket: String,
                        outputBasePath: String,
                        prefix: String = "collection-global") {
-  def areFilesAlreadyDownloaded: Boolean =
-    Paths.get(outputBasePath, prefix).toFile.exists()
+  def filesShouldBeDownloaded(force: Boolean): Boolean = {
+    force || !Paths.get(outputBasePath, prefix).toFile.exists()
+  }
 
-  def downloadFiles(): Int =
-    if (!areFilesAlreadyDownloaded) {
+  def downloadFiles(force: Boolean = false): Int = {
+    if (filesShouldBeDownloaded(force)) {
+      if (force)
+        removeOldFiles()
+
       val client =
         AmazonS3ClientBuilder.standard().withRegion(Regions.EU_WEST_2).build()
 
@@ -49,6 +54,31 @@ class S3FileDownloader(fromBucket: String,
       }
       fileKeysToDownload.length
     } else 0
+  }
+
+  def removeOldFiles(): Unit = {
+    println(s">>> Removing old files...")
+
+    val pathsToDelete = {
+      os.walk(path = os.Path(outputBasePath)).groupBy(_.toIO.isFile)
+    }
+
+    pathsToDelete
+      .getOrElse(true, Seq[Path]())
+      .foreach { f =>
+        println(s">>> Deleting file : ${f}")
+        Files.deleteIfExists(f.toIO.toPath)
+      }
+
+    pathsToDelete
+      .getOrElse(false, Seq[Path]())
+      .sortBy(_.segmentCount)
+      .reverse
+      .foreach { d =>
+        println(s">>> Deleting dir: ${d}")
+        Files.delete(d.toIO.toPath)
+      }
+  }
 
   def getFileKeysToDownload: List[String] = {
     val client = AmazonS3ClientBuilder.defaultClient()
@@ -69,5 +99,5 @@ class S3FileDownloader(fromBucket: String,
 }
 
 object S3FileDownloader {
-  val countriesOfInterest = Set("bm", "be", "nl")
+  val countriesOfInterest = Set("bm")
 }
