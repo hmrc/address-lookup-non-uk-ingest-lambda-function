@@ -7,10 +7,10 @@ import java.util.{Map => jMap}
 import scala.collection.JavaConverters._
 
 class InternationalAddressesFileDownloadLambdaFunction
-    extends RequestHandler[jMap[String, String], Int] {
+    extends RequestHandler[jMap[String, String], jMap[String, String]] {
 
   override def handleRequest(data: jMap[String, String],
-                             contextNotUsed: Context): Int = {
+                             contextNotUsed: Context): jMap[String, String] = {
     val bucketName = data.asScala.getOrElse(
       "bucketName",
       throw new IllegalArgumentException("Please specify bucketName")
@@ -22,6 +22,8 @@ class InternationalAddressesFileDownloadLambdaFunction
       Repository.Credentials.apply().csvBaseDir,
       forceDownload
     )
+
+    Map("bucketName" -> bucketName).asJava
   }
 
   private[lambdas] def doDownload(bucketName: String,
@@ -33,13 +35,4 @@ class InternationalAddressesFileDownloadLambdaFunction
       .downloadFiles(force = force)
 
   }
-}
-
-object InternationalAddressesFileDownloadLambdaFunction extends App {
-  val downloader = new InternationalAddressesFileDownloadLambdaFunction()
-  downloader.doDownload(
-    "cip-international-addresses-integration",
-    "/Users/saqib/Temp/",
-    true
-  )
 }

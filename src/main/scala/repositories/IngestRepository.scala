@@ -2,8 +2,6 @@ package repositories
 
 import cats.effect.{IO, Resource}
 import cats.implicits._
-import com.amazonaws.services.s3.AmazonS3ClientBuilder
-import com.amazonaws.services.s3.model.ListObjectsV2Request
 import doobie._
 import doobie.implicits._
 import doobie.postgres.{PFCM, PHC}
@@ -53,19 +51,6 @@ class IngestRepository(transactor: => Transactor[IO],
       }
       res <- Fragment.const(ddl).update.run.transact(transactor)
     } yield res
-
-  def ingestFilesFromS3(s3Bucket: String,
-                        schemaName: String,
-                        countryDataDir: String): IO[Int] = {
-    val listObjectsRequest = new ListObjectsV2Request()
-      .withBucketName(s3Bucket)
-      .withPrefix("collection-global")
-      .withMaxKeys(Integer.MAX_VALUE)
-    val listObjectsV2Result =
-      AmazonS3ClientBuilder.defaultClient().listObjectsV2(listObjectsRequest)
-    listObjectsV2Result.getObjectSummaries
-    ???
-  }
 
   def ingestFiles(schemaName: String, countryDataDir: String): IO[Long] =
     for {

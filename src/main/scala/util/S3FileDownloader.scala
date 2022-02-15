@@ -16,8 +16,14 @@ import scala.collection.JavaConverters._
 class S3FileDownloader(fromBucket: String,
                        outputBasePath: String,
                        prefix: String = "collection-global") {
+  println(
+    s">>> S3FileDownloader(fromBucket: $fromBucket, outputBasePath: $outputBasePath, prefix: $prefix)"
+  )
+
   def filesShouldBeDownloaded(force: Boolean): Boolean = {
-    force || !Paths.get(outputBasePath, prefix).toFile.exists()
+    val doDownload = force || !Paths.get(outputBasePath, prefix).toFile.exists()
+    println(s">>> filesShouldBeDownloaded(force: $force): $doDownload")
+    doDownload
   }
 
   def downloadFiles(force: Boolean = false): Int = {
@@ -29,6 +35,7 @@ class S3FileDownloader(fromBucket: String,
         AmazonS3ClientBuilder.standard().withRegion(Regions.EU_WEST_2).build()
 
       val fileKeysToDownload = getFileKeysToDownload
+      println(s">>> fileKeysToDownload: ${fileKeysToDownload}")
       fileKeysToDownload.par.foreach { key =>
         val fileIn: S3ObjectInputStream =
           client.getObject(fromBucket, key).getObjectContent

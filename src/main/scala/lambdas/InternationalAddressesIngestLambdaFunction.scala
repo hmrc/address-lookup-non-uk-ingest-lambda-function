@@ -19,7 +19,7 @@ class InternationalAddressesIngestLambdaFunction
     val inputs: Map[String, Any] = data.asScala.toMap
 
     Await
-      .result(doIngest(Repository().forIngest, inputs), 15.minutes)
+      .result(doIngest(Repository().forIngest, inputs), 1.minutes)
   }
 
   private[lambdas] def doIngest(repository: IngestRepository,
@@ -27,28 +27,5 @@ class InternationalAddressesIngestLambdaFunction
     println(s"Beginning ingest of international addresses")
 
     repository.ingest().unsafeToFuture()
-  }
-}
-
-object InternationalAddressesIngestLambdaFunction extends App {
-  val listObjectsRequest = new ListObjectsV2Request()
-    .withBucketName("cip-international-addresses-integration")
-    .withPrefix("collection-global")
-    .withMaxKeys(Integer.MAX_VALUE)
-  val listObjectsV2Result =
-    AmazonS3ClientBuilder.defaultClient().listObjectsV2(listObjectsRequest)
-  listObjectsV2Result.getObjectSummaries.asScala
-    .map(s => s.getKey)
-    .foreach(k => println(s">>> k: ${k}"))
-
-  val internationalAddressesLambdaFunction =
-    new InternationalAddressesIngestLambdaFunction()
-
-  timed {
-    Await.result(
-      internationalAddressesLambdaFunction
-        .doIngest(Repository.forTesting().forIngest, Map()),
-      15.minutes
-    )
   }
 }
