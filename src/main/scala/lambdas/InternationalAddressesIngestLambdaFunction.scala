@@ -1,10 +1,7 @@
 package lambdas
 
 import com.amazonaws.services.lambda.runtime.{Context, RequestHandler}
-import com.amazonaws.services.s3.AmazonS3ClientBuilder
-import com.amazonaws.services.s3.model.ListObjectsV2Request
 import repositories.{IngestRepository, Repository}
-import util.timed
 
 import java.util.{Map => jMap}
 import scala.collection.JavaConverters._

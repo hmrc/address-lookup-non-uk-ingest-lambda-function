@@ -5,10 +5,13 @@ import cats.implicits._
 import doobie._
 import doobie.implicits._
 import doobie.postgres.{PFCM, PHC}
+import doobie.util.fragment.Fragment.{const => csql}
 import os.Path
 import repositories.Repository.Credentials
 
 import java.io.{File, FileInputStream, InputStream}
+import java.time.format.DateTimeFormatter
+import java.time.{LocalDateTime, ZoneId}
 import scala.io.Source
 
 class IngestRepository(transactor: => Transactor[IO],
@@ -21,49 +24,57 @@ class IngestRepository(transactor: => Transactor[IO],
 
   def ingest(): IO[Long] = {
     for {
-      _ <- printLine(s""">>> ingest() beginning""")
-      schemaName <- findCurrentSchema()
-      _ <- printLine(s">>> schemaName: ${schemaName}")
-      basePath <- IO(s"$rootDir/collection-global")
-      _ <- printLine(s">>> basePath: ${basePath}")
+      _           <- printLine(s""">>> ingest() beginning""")
+      schemaName  <- createSchema()
+      _           <- printLine(s">>> schemaName: ${schemaName}")
+      basePath    <- IO(s"$rootDir/collection-global")
+      _           <- printLine(s">>> basePath: ${basePath}")
       updateCount <- ingestFiles(schemaName, basePath)
-      _ <- printLine(s">>> updateCount: ${updateCount}")
+      _           <- printLine(s">>> updateCount: ${updateCount}")
     } yield updateCount
   }
 
-  private def findCurrentSchema(): IO[String] =
+  private val timestampFormat = DateTimeFormatter.ofPattern("YYYYMMdd_HHmmss")
+
+  private def createSchemaName(): IO[String] = IO {
+    val timestamp = LocalDateTime.now(ZoneId.of("UTC"))
+    s"nonuk_${timestampFormat.format(timestamp)}"
+  }
+
+  private def createSchema(): IO[String] =
     for {
-      _ <- printLine(s">>> findCurrentSchema() beginning")
-      res <- sql"SELECT schema_name FROM public.address_lookup_status WHERE status = 'finalised' ORDER BY timestamp DESC LIMIT 1"
-        .query[String]
-        .unique
-        .transact(transactor)
-    } yield res
+      _           <- printLine(s">>> createSchema() beginning")
+      schemaName  <- createSchemaName()
+      res         <- csql(s"CREATE SCHEMA IF NOT EXISTS $schemaName")
+                      .update
+                      .run
+                      .transact(transactor)
+    } yield schemaName
 
   def initialiseCountryTableInSchema(schemaName: String,
                                      countryCode: String): IO[Int] =
     for {
-      rawDdl <- resourceAsString("/create_raw_table_ddl.sql")
-      ddl <- IO {
-        rawDdl
-          .replace("__schema__", schemaName)
-          .replace("__table__", countryCode)
-      }
-      res <- Fragment.const(ddl).update.run.transact(transactor)
+      rawDdl  <- resourceAsString("/create_raw_table_ddl.sql")
+      ddl     <- IO {
+                    rawDdl
+                      .replace("__schema__", schemaName)
+                      .replace("__table__", countryCode)
+                  }
+      res     <- Fragment.const(ddl).update.run.transact(transactor)
     } yield res
 
   def ingestFiles(schemaName: String, countryDataDir: String): IO[Long] =
     for {
-      _ <- printLine(s""">>> ingestFiles($schemaName, $countryDataDir)""")
+      _               <- printLine(s""">>> ingestFiles($schemaName, $countryDataDir)""")
       filesOfInterest <- getCountryToFilesOfInterestMap(countryDataDir)
-      _ <- printLine(s">>> filesOfInterest: ${filesOfInterest}")
-      res <- processCountryFiles(schemaName, filesOfInterest)
+      _               <- printLine(s">>> filesOfInterest: ${filesOfInterest}")
+      res             <- processCountryFiles(schemaName, filesOfInterest)
     } yield res
 
   private def processCountryFiles(
-    schemaName: String,
-    coToFilesMap: Map[String, Seq[Path]]
-  ): IO[Long] = {
+                                   schemaName: String,
+                                   coToFilesMap: Map[String, Seq[Path]]
+                                 ): IO[Long] = {
     coToFilesMap
       .map {
         case (countryCode, files) =>
@@ -91,8 +102,8 @@ class IngestRepository(transactor: => Transactor[IO],
   }
 
   private def getCountryToFilesOfInterestMap(
-    countryDataDir: String
-  ): IO[Map[String, Seq[Path]]] = IO {
+                                              countryDataDir: String
+                                            ): IO[Map[String, Seq[Path]]] = IO {
     os.walk(path = os.Path(countryDataDir))
       .filter { p =>
         p.toIO.getName.endsWith("geojson")
@@ -108,41 +119,41 @@ class IngestRepository(transactor: => Transactor[IO],
                  table: String,
                  filePath: String): IO[Long] =
     for {
-      _ <- printLine(
+      _         <- printLine(
         s">>> Ingest international file $filePath into table $table"
       )
-      resrc <- IO(
+      resrc     <- IO(
         Resource.make[IO, InputStream](IO(new FileInputStream(filePath)))(
           s => IO(s.close())
         )
       )
-      copySql <- resourceAsString("/raw_copy.sql").map(
+      copySql   <- resourceAsString("/raw_copy.sql").map(
         s =>
           s.replaceAll("__schema__", schemaName).replaceAll("__table__", table)
       )
-      res <- resrc.use[Long] { in =>
+      res       <- resrc.use[Long] { in =>
         PHC.pgGetCopyAPI(PFCM.copyIn(copySql, in)).transact(transactor)
       }
     } yield res
 
   def createMaterializedView(schemaName: String, table: String): IO[Long] =
     for {
-      _ <- printLine(s">>> Creating materialized view $table")
-      ddlSql <- resourceAsString("/create_view_ddl.sql").map(
-        s =>
-          s.replaceAll("__schema__", schemaName).replaceAll("__table__", table)
-      )
-      res <- Fragment.const(ddlSql).update.run.transact(transactor)
+      _       <- printLine(s">>> Creating materialized view $table")
+      ddlSql  <- resourceAsString("/create_view_ddl.sql").map(
+                    s =>
+                      s.replaceAll("__schema__", schemaName).replaceAll("__table__", table)
+                  )
+      res     <- Fragment.const(ddlSql).update.run.transact(transactor)
     } yield res
 
   def createPublicView(schemaName: String, table: String): IO[Long] =
     for {
-      _ <- printLine(s">>> Creating public view $table")
-      ddlSql <- resourceAsString("/create_public_view_ddl.sql").map(
-        s =>
-          s.replaceAll("__schema__", schemaName).replaceAll("__table__", table)
-      )
-      res <- Fragment.const(ddlSql).update.run.transact(transactor)
+      _       <- printLine(s">>> Creating public view $table")
+      ddlSql  <- resourceAsString("/create_public_view_ddl.sql").map(
+                  s =>
+                    s.replaceAll("__schema__", schemaName).replaceAll("__table__", table)
+                )
+      res     <- Fragment.const(ddlSql).update.run.transact(transactor)
     } yield res
 
   private def resourceAsString(name: String): IO[String] = {

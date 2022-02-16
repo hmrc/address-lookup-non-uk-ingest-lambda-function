@@ -11,10 +11,8 @@ class InternationalAddressesFileDownloadLambdaFunction
 
   override def handleRequest(data: jMap[String, String],
                              contextNotUsed: Context): jMap[String, String] = {
-    val bucketName = data.asScala.getOrElse(
-      "bucketName",
-      throw new IllegalArgumentException("Please specify bucketName")
-    )
+    // OVerride bucket using the provided value
+    val bucketName = data.asScala.getOrElse("bucketName", Repository.Credentials().nonukBucketName)
     val forceDownload = data.asScala.getOrElse("force", "false").toBoolean
 
     doDownload(
