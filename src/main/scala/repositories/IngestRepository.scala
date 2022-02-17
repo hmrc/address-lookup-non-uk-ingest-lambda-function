@@ -1,158 +1,160 @@
 package repositories
 
 import cats.effect.{IO, Resource}
-import doobie.implicits._
-import doobie.util.fragment.Fragment.{const => csql}
+import cats.implicits._
 import doobie._
-import model.{GeoJson, SqlProperties}
-import org.slf4j.LoggerFactory
-import play.api.libs.json.Json
+import doobie.implicits._
+import doobie.postgres.{PFCM, PHC}
+import doobie.util.fragment.Fragment.{const => csql}
+import os.Path
 import repositories.Repository.Credentials
 
-import java.io.File
+import java.io.{File, FileInputStream, InputStream}
 import java.time.format.DateTimeFormatter
 import java.time.{LocalDateTime, ZoneId}
-import scala.concurrent.Future
-import scala.io.{BufferedSource, Source}
+import scala.io.Source
 
 class IngestRepository(transactor: => Transactor[IO],
                        private val credentials: Credentials) {
-  private val logger = LoggerFactory.getLogger(classOf[IngestRepository])
 
   private val rootDir: String = {
     if (new File(credentials.csvBaseDir).isAbsolute) credentials.csvBaseDir
     else os.pwd.toString + "/" + credentials.csvBaseDir
   }
 
-  def ingest(): IO[Int] = {
+  def ingest(): IO[Long] = {
     for {
-      _ <- printLine(s""">>> ingest() beginning""")
-      schemaName <- findCurrentSchema()
-      _ <- printLine(s">>> schemaName: ${schemaName}")
-      basePath <- IO(s"$rootDir/collection-global")
-      _ <- printLine(s">>> basePath: ${basePath}")
+      _           <- printLine(s""">>> ingest() beginning""")
+      schemaName  <- createSchema()
+      _           <- printLine(s">>> schemaName: ${schemaName}")
+      basePath    <- IO(s"$rootDir/collection-global")
+      _           <- printLine(s">>> basePath: ${basePath}")
       updateCount <- ingestFiles(schemaName, basePath)
-      _ <- printLine(s">>> updateCount: ${updateCount}")
+      _           <- printLine(s">>> updateCount: ${updateCount}")
     } yield updateCount
   }
 
-  private def findCurrentSchema(): IO[String] =
+  private val timestampFormat = DateTimeFormatter.ofPattern("YYYYMMdd_HHmmss")
+
+  private def createSchemaName(): IO[String] = IO {
+    val timestamp = LocalDateTime.now(ZoneId.of("UTC"))
+    s"nonuk_${timestampFormat.format(timestamp)}"
+  }
+
+  private def createSchema(): IO[String] =
     for {
-      _ <- printLine(s">>> findCurrentSchema() beginning")
-      res <- sql"SELECT schema_name FROM public.address_lookup_status WHERE status = 'finalised'"
-        .query[String]
-        .unique
-        .transact(transactor)
-    } yield res
+      _           <- printLine(s">>> createSchema() beginning")
+      schemaName  <- createSchemaName()
+      res         <- csql(s"CREATE SCHEMA IF NOT EXISTS $schemaName")
+                      .update
+                      .run
+                      .transact(transactor)
+    } yield schemaName
 
   def initialiseCountryTableInSchema(schemaName: String,
                                      countryCode: String): IO[Int] =
     for {
-      rawDdl <- resourceAsString("/create_table_ddl.sql")
-      ddl <- IO {
-        rawDdl
-          .replace("__schema__", schemaName)
-          .replace("__table__", countryCode)
-      }
-      res <- Fragment.const(ddl).update.run.transact(transactor)
+      rawDdl  <- resourceAsString("/create_raw_table_ddl.sql")
+      ddl     <- IO {
+                    rawDdl
+                      .replace("__schema__", schemaName)
+                      .replace("__table__", countryCode)
+                  }
+      res     <- Fragment.const(ddl).update.run.transact(transactor)
     } yield res
 
-  def ingestFiles(schemaName: String, countryDataDir: String): IO[Int] = {
-    IO {
-      println(s""">>> ingestFiles($schemaName, $countryDataDir)""")
+  def ingestFiles(schemaName: String, countryDataDir: String): IO[Long] =
+    for {
+      _               <- printLine(s""">>> ingestFiles($schemaName, $countryDataDir)""")
+      filesOfInterest <- getCountryToFilesOfInterestMap(countryDataDir)
+      _               <- printLine(s">>> filesOfInterest: ${filesOfInterest}")
+      res             <- processCountryFiles(schemaName, filesOfInterest)
+    } yield res
 
-      val filesOfInterest = os
-        .walk(path = os.Path(countryDataDir))
-        .filter { p =>
-          p.toIO.getName.endsWith("geojson")
-        }
-        .filter(_.toString().contains("/bm/"))
-        .groupBy { p =>
-          val countriesDir = p.toString().replace(countryDataDir, "")
-          val seg = os.Path(countriesDir).getSegment(0)
-          seg
-        }
-
-      println(s">>> filesOfInterest: ${filesOfInterest}")
-
-      filesOfInterest
-    }.flatMap { coToFilesMap =>
-      coToFilesMap
-        .map {
-          case (countryCode, files) =>
-            println(s">>> countryCode: ${countryCode}, files: ${files.length}")
-            initialiseCountryTableInSchema(schemaName, countryCode)
-              .flatMap { _ =>
-                files
-                  .map { f =>
-                    ingestFile(s"$schemaName.$countryCode", s"$f")
-                  }
-                  .toSeq
-                  .fold(IO(0)) {
-                    case (aio, bio) =>
-                      for { a <- aio; b <- bio } yield a + b
-                  }
-              }
-        }
-        .toSeq
-        .fold(IO(0)) {
-          case (aio, bio) => for { a <- aio; b <- bio } yield a + b
-        }
-    }
+  private def processCountryFiles(
+                                   schemaName: String,
+                                   coToFilesMap: Map[String, Seq[Path]]
+                                 ): IO[Long] = {
+    coToFilesMap
+      .map {
+        case (countryCode, files) =>
+          println(s">>> countryCode: ${countryCode}, files: ${files.length}")
+          initialiseCountryTableInSchema(schemaName, countryCode)
+            .flatMap { _ =>
+              files
+                .map { f =>
+                  ingestFile(schemaName, countryCode, s"$f")
+                }
+                .toList
+                .sequence
+                .map(_.sum)
+            }
+            .flatMap { _ =>
+              createMaterializedView(schemaName, countryCode)
+            }
+            .flatMap { _ =>
+              createPublicView(schemaName, countryCode)
+            }
+      }
+      .toList
+      .sequence
+      .map(_.sum)
   }
 
-  def ingestFile(table: String, filePath: String): IO[Int] = {
-    import model.GeoJson._
-
-    println(s">>> Ingest international file $filePath into table $table")
-
-    Resource
-      .make[IO, BufferedSource](IO(Source.fromFile(filePath, "utf-8")))(
-        s => IO(s.close())
-      )
-      .use[Int] { in =>
-        in.getLines()
-          .map(l => Json.parse(l))
-          .flatMap(gj => Json.fromJson[GeoJson](gj).asOpt)
-          .map { gj =>
-            val p = SqlProperties(gj.properties)
-            Fragment
-              .const(s"""INSERT INTO $table (id, hash, number, street, unit, city, district, region, postcode) 
-                     |VALUES (${p.id},
-                     |${p.hash},
-                     |${p.number}, 
-                     |${p.street}, 
-                     |${p.unit}, 
-                     |${p.city}, 
-                     |${p.district}, 
-                     |${p.region}, 
-                     |${p.postcode})""".stripMargin)
-              .update
-              .run
-              .transact(transactor)
-          }
-          .fold(IO(0)) {
-            case (aio, bio) =>
-              for {
-                a <- aio
-                b <- bio
-              } yield a + b
-          }
+  private def getCountryToFilesOfInterestMap(
+                                              countryDataDir: String
+                                            ): IO[Map[String, Seq[Path]]] = IO {
+    os.walk(path = os.Path(countryDataDir))
+      .filter { p =>
+        p.toIO.getName.endsWith("geojson")
+      }
+      .groupBy { p =>
+        val countriesDir = p.toString().replace(countryDataDir, "")
+        val seg = os.Path(countriesDir).getSegment(0)
+        seg
       }
   }
 
-  private def cleanupOldEpochDirectories(proceed: Boolean,
-                                         epoch: String): Unit = {
-    if (proceed) {
-      os.walk(
-          path = os.Path(rootDir),
-          skip = p => p.baseName == epoch,
-          maxDepth = 1
+  def ingestFile(schemaName: String,
+                 table: String,
+                 filePath: String): IO[Long] =
+    for {
+      _         <- printLine(
+        s">>> Ingest international file $filePath into table $table"
+      )
+      resrc     <- IO(
+        Resource.make[IO, InputStream](IO(new FileInputStream(filePath)))(
+          s => IO(s.close())
         )
-        .filter(_.toIO.isDirectory)
-        .foreach(os.remove.all)
-    }
-  }
+      )
+      copySql   <- resourceAsString("/raw_copy.sql").map(
+        s =>
+          s.replaceAll("__schema__", schemaName).replaceAll("__table__", table)
+      )
+      res       <- resrc.use[Long] { in =>
+        PHC.pgGetCopyAPI(PFCM.copyIn(copySql, in)).transact(transactor)
+      }
+    } yield res
+
+  def createMaterializedView(schemaName: String, table: String): IO[Long] =
+    for {
+      _       <- printLine(s">>> Creating materialized view $table")
+      ddlSql  <- resourceAsString("/create_view_ddl.sql").map(
+                    s =>
+                      s.replaceAll("__schema__", schemaName).replaceAll("__table__", table)
+                  )
+      res     <- Fragment.const(ddlSql).update.run.transact(transactor)
+    } yield res
+
+  def createPublicView(schemaName: String, table: String): IO[Long] =
+    for {
+      _       <- printLine(s">>> Creating public view $table")
+      ddlSql  <- resourceAsString("/create_public_view_ddl.sql").map(
+                  s =>
+                    s.replaceAll("__schema__", schemaName).replaceAll("__table__", table)
+                )
+      res     <- Fragment.const(ddlSql).update.run.transact(transactor)
+    } yield res
 
   private def resourceAsString(name: String): IO[String] = {
     Resource

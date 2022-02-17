@@ -11,11 +11,13 @@ import scala.concurrent.ExecutionContext.Implicits.global
 
 /**
   * Assume that the database has already been created by the ABP ingest.
+  * <pre>
   * 1. Get the current schema-name
   * 2. Import data
   *  a. Create table for country (2-char iso code)
   *  b. Import all data for that country to that table
   *  c. Update status table to indicate this ???
+  *  </pre>
   */
 object Repository {
   case class Repositories(forIngest: IngestRepository)
@@ -65,6 +67,8 @@ object Repository {
     def readerPassword: String
 
     def csvBaseDir: String
+
+    def nonukBucketName: String
   }
 
   object Credentials {
@@ -95,6 +99,8 @@ object Repository {
     override def reader: String = admin
 
     override def readerPassword: String = adminPassword
+
+    override def nonukBucketName: String = "cip-international-addresses"
 
     override def csvBaseDir: String =
       s"${sys.env("WORKSPACE")}/tmp"
@@ -134,6 +140,9 @@ object Repository {
 
     override def readerPassword: String =
       retrieveCredentials("address_lookup_rds_readonly_password")
+
+    override def nonukBucketName: String =
+      retrieveCredentials("non_uk_address_lookup_bucket")
 
     override def csvBaseDir: String = "/mnt/efs/international-addresses"
   }
