@@ -13,6 +13,7 @@ SELECT rt.id                     AS uid,
        NULLIF(replace(btrim((rt.data::json -> 'properties' ->> 'postcode')::text), '""', ''), '') AS postcode,
        to_tsvector('english'::regconfig, array_to_string(
                ARRAY [
+                   NULLIF(replace(btrim((rt.data::json -> 'properties' ->> 'number')::text), '""', ''), ''),
                    NULLIF(replace(btrim((rt.data::json -> 'properties' ->> 'street')::text), '""', ''), ''),
                    NULLIF(replace(btrim((rt.data::json -> 'properties' ->> 'unit')::text), '""', ''), ''),
                    NULLIF(replace(btrim((rt.data::json -> 'properties' ->> 'city')::text), '""', ''), ''),
