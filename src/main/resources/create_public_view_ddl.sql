@@ -13,3 +13,5 @@ SELECT uid,
        postcode,
        address_lookup_ft_col
 FROM __schema__.__table__;
+
+GRANT SELECT ON public.__table__ TO addresslookupreader;
