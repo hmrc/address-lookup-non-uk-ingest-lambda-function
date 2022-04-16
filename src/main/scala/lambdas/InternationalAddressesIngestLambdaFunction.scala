@@ -15,8 +15,7 @@ class InternationalAddressesIngestLambdaFunction
                              contextNotUsed: Context): Long = {
     val inputs: Map[String, Any] = data.asScala.toMap
 
-    Await
-      .result(doIngest(Repository().forIngest, inputs), 1.minutes)
+    Await.result(doIngest(Repository().forIngest, inputs), 15.minutes)
   }
 
   private[lambdas] def doIngest(repository: IngestRepository,

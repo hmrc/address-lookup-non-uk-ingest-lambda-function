@@ -23,5 +23,5 @@ SELECT rt.id                     AS uid,
                ' '::text))       AS address_lookup_ft_col
 FROM __schema__.raw___table__ rt;
 
-CREATE INDEX IF NOT EXISTS address_lookup_ft_col_idx
-    ON __schema__.__table__ USING gin (address_lookup_ft_col);
+-- CREATE INDEX IF NOT EXISTS address_lookup_ft_col_idx
+--     ON __schema__.__table__ USING gin (address_lookup_ft_col);
