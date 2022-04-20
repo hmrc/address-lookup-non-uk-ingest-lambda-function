@@ -1,7 +1,7 @@
 CREATE SCHEMA __schema__;
 CREATE TABLE IF NOT EXISTS public.nonuk_address_lookup_status (
-    host_schema     VARCHAR(64) NOT NULL PRIMARY KEY,
-    status          VARCHAR(32) NOT NULL,
+    host_schema     VARCHAR NOT NULL PRIMARY KEY,
+    status          VARCHAR NOT NULL,
     error_message   VARCHAR NULL,
     timestamp       TIMESTAMP NOT NULL
     );

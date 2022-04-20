@@ -31,6 +31,10 @@ class IngestRepository(transactor: => Transactor[IO],
     } yield updateCount
   }
 
+  private def createStatusRow(schemaName: String, country: String): String =
+    s"""INSERT INTO public.nonuk_address_lookup_status(host_schema, status, timestamp)
+                  | VALUES(format('%I-%I', '${schemaName}', '${country}'), 'initialized', now());""".stripMargin
+
   private val timestampFormat = DateTimeFormatter.ofPattern("YYYYMMdd_HHmmss")
 
   private def createSchemaName(): IO[String] = IO {
@@ -49,15 +53,21 @@ class IngestRepository(transactor: => Transactor[IO],
                       S3FileDownloader.countriesOfInterest.map{c =>
                         rawProcDdl.replace("__schema__", schemaName)
                           .replace("__table__", c)
-                      }.toList
+                      }
                    }
     _           <- procDdl.map(pddl => csql(pddl).update.run.transact(transactor)).sequence
+    statusDdl     <- IO {
+                      S3FileDownloader.countriesOfInterest.map{c =>
+                        createStatusRow(schemaName, c)
+                      }
+                   }
+    _           <- statusDdl.map(sddl => csql(sddl).update.run.transact(transactor)).sequence
     _           <- initialiseCountryTablesInSchema(schemaName)
   } yield schemaName
 
   def initialiseCountryTablesInSchema(schemaName: String): IO[Int] = for {
     x <- S3FileDownloader.countriesOfInterest
-      .map(initialiseCountryTableInSchema(schemaName, _)).toList
+      .map(initialiseCountryTableInSchema(schemaName, _))
       .sequence
   } yield x.sum
 
@@ -72,9 +82,9 @@ class IngestRepository(transactor: => Transactor[IO],
       res     <- Fragment.const(ddl).update.run.transact(transactor)
     } yield res
 
-  def postIngestProcessing(schemaName: String, country: String): IO[Long] = for {
-    _         <- printLine(s">>> Starting postIngestProcessing($schemaName)")
-    mv        <- createMaterializedView(schemaName, country)
+  def postIngestProcessing(countries: List[Map[String, String]]): IO[Long] = for {
+    _         <- printLine(s">>> Starting postIngestProcessing($countries)")
+    mv        <- createMaterializedView(countries)
 //    idx       <- createIndexesOnMaterializedView(schemaName, country)
 //    v         <- createPublicView(schemaName, country)
   } yield mv //+idx+v
@@ -91,45 +101,19 @@ class IngestRepository(transactor: => Transactor[IO],
                 }
     } yield res
 
-  def createMaterializedView(schemaName: String, table: String): IO[Long] =
+  def createMaterializedView(countries: List[Map[String, String]]): IO[Long] =
     for {
-      _       <- printLine(s">>> Creating materialized view $table")
-      ddlSql  <- resourceAsString("/invoke_create_view_function_ddl.sql").map(
-                s => s.replaceAll("__schema__", schemaName)
-                      .replaceAll("__table__", table)
-              )
-      _       <- printLine(s"Executing '$ddlSql'")
-      res     <- Fragment.const(ddlSql).update.run.transact(transactor)
-    } yield res
-
-  def createIndexesOnMaterializedView(schemaName: String, table: String): IO[Long] =
-    for {
-      _       <- printLine(s">>> Creating indexes on materialized view $table")
-      ddlSql  <- resourceAsString("/create_view_indexes_ddl.sql").map(
-                s => s.replaceAll("__schema__", schemaName)
-                      .replaceAll("__table__", table)
-              )
-      res     <- Fragment.const(ddlSql).update.run.transact(transactor)
-    } yield res
-
-  def createMaterializedViewIndexes(schemaName: String, table: String): IO[Long] =
-    for {
-      _       <- printLine(s">>> Creating materialized view indexes on $table")
-      ddlSql  <- resourceAsString("/create_view_indexes_ddl.sql").map(
-                s => s.replaceAll("__schema__", schemaName)
-                      .replaceAll("__table__", table)
-              )
-      res     <- Fragment.const(ddlSql).update.run.transact(transactor)
-    } yield res
-
-  def createPublicView(schemaName: String, table: String): IO[Long] =
-    for {
-      _       <- printLine(s">>> Creating public view $table")
-      ddlSql  <- resourceAsString("/create_public_view_ddl.sql").map(
-                s => s.replaceAll("__schema__", schemaName)
-                      .replaceAll("__table__", table)
-              )
-      res     <- Fragment.const(ddlSql).update.run.transact(transactor)
+      _           <- printLine(s">>> Creating materialized views")
+      statements  <- IO{
+                    countries.map{ m =>
+                      s"""SELECT public.create_nonuk_materialized_view_for_${m("country")}();"""
+                    }.mkString("\n")
+                  }
+      ddlSql      <- resourceAsString("/invoke_create_view_function_ddl.sql").map(
+                    s => s.replaceAll("__replacement_statements__", statements)
+                  )
+      _           <- printLine(s"createMaterializedView sql: '$ddlSql'")
+      res         <- csql(ddlSql).update.run.transact(transactor)
     } yield res
 
   private def resourceAsString(name: String): IO[String] = {

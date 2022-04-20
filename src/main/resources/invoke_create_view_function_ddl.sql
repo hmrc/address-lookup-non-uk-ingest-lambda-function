@@ -1,3 +1,3 @@
-BEGIN;
-SELECT create_nonuk_materialized_view_for___table__();
+BEGIN TRANSACTION;
+__replacement_statements__
 COMMIT;
