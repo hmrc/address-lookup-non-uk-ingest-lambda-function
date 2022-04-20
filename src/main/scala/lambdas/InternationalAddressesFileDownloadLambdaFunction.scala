@@ -7,10 +7,9 @@ import java.util.{Map => jMap, List => jList}
 import scala.collection.JavaConverters._
 
 class InternationalAddressesFileDownloadLambdaFunction
-    extends RequestHandler[jMap[String, String], jMap[String, jList[jMap[String, String]]]] {
+    extends RequestHandler[jMap[String, String], jMap[String, Object]] {
 
-  override def handleRequest(data: jMap[String, String],
-                             contextNotUsed: Context): jMap[String, jList[jMap[String, String]]] = {
+  override def handleRequest(data: jMap[String, String], contextNotUsed: Context): jMap[String, Object] = {
     // OVerride bucket using the provided value
     val bucketName = data.asScala.getOrElse("bucketName", Repository.Credentials().nonukBucketName)
     val forceDownload = data.asScala.getOrElse("force", "false").toBoolean
@@ -21,7 +20,9 @@ class InternationalAddressesFileDownloadLambdaFunction
       forceDownload
     )
 
-    Map("filesToIngest" -> result.map(_.asJava).asJava).asJava
+    println(s">>> result: ${result.mkString("\n")}")
+
+    Map("filesToIngest" -> result.map(_.asJava).asJava).asInstanceOf[Map[String, Object]].asJava
   }
 
   private[lambdas] def doDownload(bucketName: String,

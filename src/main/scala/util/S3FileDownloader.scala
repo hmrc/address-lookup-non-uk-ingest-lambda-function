@@ -51,6 +51,8 @@ class S3FileDownloader(fromBucket: String,
     val s3File = client.getObject(fromBucket, key)
     val fileContentStream = s3File.getObjectContent
 
+    println(s">>> Downloading file: ${key}")
+
     val fileIn: BufferedSource = Source.fromInputStream(fileContentStream)
 
     val outputFileBase = {
@@ -147,7 +149,7 @@ class S3FileDownloader(fromBucket: String,
 }
 
 object S3FileDownloader {
-  val countriesOfInterest: Set[String] = Set("nl")
+  val countriesOfInterest: Set[String] = Set("bm", "vg")
 
   def countryPattern(prefix: String): Regex = {
     val countryPatternString = s"${prefix}/(\\p{Lower}{2})/.+"
