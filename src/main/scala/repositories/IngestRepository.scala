@@ -2,11 +2,11 @@ package repositories
 
 import cats.effect.{IO, Resource}
 import cats.implicits._
+import util.S3FileDownloader
 import doobie._
 import doobie.implicits._
 import doobie.postgres.{PFCM, PHC}
 import doobie.util.fragment.Fragment.{const => csql}
-import os.Path
 import repositories.Repository.Credentials
 
 import java.io.{File, FileInputStream, InputStream}
@@ -17,22 +17,13 @@ import scala.io.Source
 class IngestRepository(transactor: => Transactor[IO],
                        private val credentials: Credentials) {
 
-  private val rootDir: String = {
-    if (new File(credentials.csvBaseDir).isAbsolute) credentials.csvBaseDir
-    else os.pwd.toString + "/" + credentials.csvBaseDir
-  }
+  def ingest(schemaName: String, country: String, fileToIngest: String): IO[Long] = for {
+    updateCount <- ingestFile(schemaName, country, fileToIngest)
+  } yield updateCount
 
-  def ingest(): IO[Long] = {
-    for {
-      _           <- printLine(s""">>> ingest() beginning""")
-      schemaName  <- createSchema()
-      _           <- printLine(s">>> schemaName: ${schemaName}")
-      basePath    <- IO(s"$rootDir/collection-global")
-      _           <- printLine(s">>> basePath: ${basePath}")
-      updateCount <- ingestFiles(schemaName, basePath)
-      _           <- printLine(s">>> updateCount: ${updateCount}")
-    } yield updateCount
-  }
+  private def createStatusRow(schemaName: String, country: String): String =
+    s"""INSERT INTO public.nonuk_address_lookup_status(host_schema, status, timestamp)
+       | VALUES(format('%I-%I', '${schemaName}', '${country}'), 'initialized', now());""".stripMargin
 
   private val timestampFormat = DateTimeFormatter.ofPattern("YYYYMMdd_HHmmss")
 
@@ -41,120 +32,111 @@ class IngestRepository(transactor: => Transactor[IO],
     s"nonuk_${timestampFormat.format(timestamp)}"
   }
 
-  private def createSchema(): IO[String] =
-    for {
-      _           <- printLine(s">>> createSchema() beginning")
-      schemaName  <- createSchemaName()
-      res         <- csql(s"CREATE SCHEMA IF NOT EXISTS $schemaName")
-                      .update
-                      .run
-                      .transact(transactor)
-    } yield schemaName
+  def createSchema(): IO[String] = for {
+    sTD         <- schemasToDrop()
+    _           <- dropSchemas(sTD)
+    schemaName  <- createSchemaName()
+    rawDdl      <- resourceAsString("/create_schema_ddl.sql")
+    ddl         <- IO(rawDdl.replace("__schema__", schemaName))
+    _           <- csql(ddl).update.run.transact(transactor)
+    rawProcDdl  <- resourceAsString("/create_view_function_ddl.sql")
+    procDdl     <- IO {
+                      S3FileDownloader.countriesOfInterest.map { c =>
+                        rawProcDdl
+                          .replace("__schema__", schemaName)
+                          .replace("__table__", c)
+                      }
+                    }
+    _           <- procDdl.map(pddl => csql(pddl).update.run.transact(transactor)).sequence
+    statusDdl   <- IO {
+                        S3FileDownloader.countriesOfInterest.map { c =>
+                          createStatusRow(schemaName, c)
+                        }
+                      }
+    _           <- statusDdl.map(sddl => csql(sddl).update.run.transact(transactor)).sequence
+    _           <- initialiseCountryTablesInSchema(schemaName)
+  } yield schemaName
 
-  def initialiseCountryTableInSchema(schemaName: String,
-                                     countryCode: String): IO[Int] =
+  private def schemasToDrop(): IO[List[String]] =
+    for {
+      rs      <- resourceAsString("/schemas_to_drop.sql")
+      result  <- csql(rs).query[String].to[List].transact(transactor)
+    } yield result
+
+  private def dropSchemas(schemas: List[String]): IO[Int] = {
+    val sqlStringRes = resourceAsString("/drop_schema.sql")
+
+    schemas.map { schema =>
+      for {
+        sqlStr  <- sqlStringRes
+        sql     <- csql(sqlStr.replaceAll("__schema__", schema)).update.run.transact(transactor)
+      } yield sql
+    }.fold(IO(0)) {
+      case (ioa, iob) => for {
+        a <- ioa
+        b <- iob
+      } yield a + b
+    }
+  }
+
+  def initialiseCountryTablesInSchema(schemaName: String): IO[Int] = for {
+    x <- S3FileDownloader.countriesOfInterest
+          .map(initialiseCountryTableInSchema(schemaName, _))
+          .sequence
+  } yield x.sum
+
+  def initialiseCountryTableInSchema(schemaName: String, countryCode: String): IO[Int] =
     for {
       rawDdl  <- resourceAsString("/create_raw_table_ddl.sql")
       ddl     <- IO {
-                    rawDdl
-                      .replace("__schema__", schemaName)
-                      .replace("__table__", countryCode)
-                  }
+                  rawDdl
+                    .replace("__schema__", schemaName)
+                    .replace("__table__", countryCode)
+                }
       res     <- Fragment.const(ddl).update.run.transact(transactor)
     } yield res
 
-  def ingestFiles(schemaName: String, countryDataDir: String): IO[Long] =
-    for {
-      _               <- printLine(s""">>> ingestFiles($schemaName, $countryDataDir)""")
-      filesOfInterest <- getCountryToFilesOfInterestMap(countryDataDir)
-      _               <- printLine(s">>> filesOfInterest: ${filesOfInterest}")
-      res             <- processCountryFiles(schemaName, filesOfInterest)
-    } yield res
+  def postIngestProcessing(countries: List[Map[String, String]]): IO[Long] = for {
+    mv  <- createMaterializedView(countries)
+  } yield mv
 
-  private def processCountryFiles(
-                                   schemaName: String,
-                                   coToFilesMap: Map[String, Seq[Path]]
-                                 ): IO[Long] = {
-    coToFilesMap
-      .map {
-        case (countryCode, files) =>
-          println(s">>> countryCode: ${countryCode}, files: ${files.length}")
-          initialiseCountryTableInSchema(schemaName, countryCode)
-            .flatMap { _ =>
-              files
-                .map { f =>
-                  ingestFile(schemaName, countryCode, s"$f")
-                }
-                .toList
-                .sequence
-                .map(_.sum)
-            }
-            .flatMap { _ =>
-              createMaterializedView(schemaName, countryCode)
-            }
-            .flatMap { _ =>
-              createPublicView(schemaName, countryCode)
-            }
-      }
-      .toList
-      .sequence
-      .map(_.sum)
-  }
-
-  private def getCountryToFilesOfInterestMap(
-                                              countryDataDir: String
-                                            ): IO[Map[String, Seq[Path]]] = IO {
-    os.walk(path = os.Path(countryDataDir))
-      .filter { p =>
-        p.toIO.getName.endsWith("geojson")
-      }
-      .groupBy { p =>
-        val countriesDir = p.toString().replace(countryDataDir, "")
-        val seg = os.Path(countriesDir).getSegment(0)
-        seg
-      }
-  }
-
-  def ingestFile(schemaName: String,
-                 table: String,
-                 filePath: String): IO[Long] =
-    for {
-      _         <- printLine(
-        s">>> Ingest international file $filePath into table $table"
-      )
-      resrc     <- IO(
-        Resource.make[IO, InputStream](IO(new FileInputStream(filePath)))(
-          s => IO(s.close())
-        )
-      )
+  def ingestFile(schemaName: String, table: String, filePath: String): IO[Long] = for {
+      inputData <- IO(Resource.make[IO, InputStream](IO(new FileInputStream(filePath)))(s => IO(s.close())))
       copySql   <- resourceAsString("/raw_copy.sql").map(
-        s =>
-          s.replaceAll("__schema__", schemaName).replaceAll("__table__", table)
-      )
-      res       <- resrc.use[Long] { in =>
-        PHC.pgGetCopyAPI(PFCM.copyIn(copySql, in)).transact(transactor)
-      }
+                    s => s.replaceAll("__schema__", schemaName)
+                      .replaceAll("__table__", table))
+      res       <- inputData.use[Long] {
+                      in => PHC.pgGetCopyAPI(PFCM.copyIn(copySql, in)).transact(transactor)
+                    }
     } yield res
 
-  def createMaterializedView(schemaName: String, table: String): IO[Long] =
-    for {
-      _       <- printLine(s">>> Creating materialized view $table")
-      ddlSql  <- resourceAsString("/create_view_ddl.sql").map(
-                    s =>
-                      s.replaceAll("__schema__", schemaName).replaceAll("__table__", table)
-                  )
-      res     <- Fragment.const(ddlSql).update.run.transact(transactor)
+  def createMaterializedView(countries: List[Map[String, String]]): IO[Long] = for {
+      statements  <- IO {
+                      countries.map { m =>
+                        s"""SELECT public.create_nonuk_materialized_view_for_${m("country")}();"""
+                      }.mkString("\n")
+                    }
+      ddlSql      <- resourceAsString("/invoke_create_view_function_ddl.sql").map(
+                        s => s.replaceAll("__replacement_statements__", statements)
+                      )
+      res         <- csql(ddlSql).update.run.transact(transactor)
     } yield res
 
-  def createPublicView(schemaName: String, table: String): IO[Long] =
-    for {
-      _       <- printLine(s">>> Creating public view $table")
-      ddlSql  <- resourceAsString("/create_public_view_ddl.sql").map(
-                  s =>
-                    s.replaceAll("__schema__", schemaName).replaceAll("__table__", table)
-                )
-      res     <- Fragment.const(ddlSql).update.run.transact(transactor)
-    } yield res
+  def checkStatus(schemaName: String): IO[List[(String, String, Option[String])]] = for {
+    statusSql <- IO(
+                  s"""SELECT host_schema, status, error_message
+                     | FROM public.nonuk_address_lookup_status
+                     | WHERE host_schema LIKE '${schemaName}-%'""".stripMargin)
+    res       <- csql(statusSql).query[(String, String, Option[String])].to[List].transact(transactor)
+  } yield res
+
+  def finaliseSchema(schemaName: String): IO[Boolean] = for {
+    res <- csql(
+            s"""UPDATE public.nonuk_address_lookup_status
+               | SET status = 'finalised'
+               | WHERE host_schema like '${schemaName}-%';
+               | """.stripMargin).update.run.transact(transactor)
+  } yield res > 0
 
   private def resourceAsString(name: String): IO[String] = {
     Resource

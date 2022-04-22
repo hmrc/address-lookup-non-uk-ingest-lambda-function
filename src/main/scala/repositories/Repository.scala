@@ -54,19 +54,11 @@ object Repository {
 
     def database: String
 
-    def admin: String
-
-    def adminPassword: String
-
     def ingestor: String
 
     def ingestorPassword: String
 
-    def reader: String
-
-    def readerPassword: String
-
-    def csvBaseDir: String
+    def nonUkBaseDir: String
 
     def nonukBucketName: String
   }
@@ -88,22 +80,14 @@ object Repository {
 
     override def database: String = "addressbasepremium"
 
-    override def admin: String = "postgres"
+    override def ingestor: String = "postgres"
 
-    override def adminPassword: String = "postgres"
-
-    override def ingestor: String = admin
-
-    override def ingestorPassword: String = adminPassword
-
-    override def reader: String = admin
-
-    override def readerPassword: String = adminPassword
+    override def ingestorPassword: String = "postgres"
 
     override def nonukBucketName: String = "cip-international-addresses"
 
-    override def csvBaseDir: String =
-      s"${sys.env("WORKSPACE")}/tmp"
+    override def nonUkBaseDir: String =
+      s"${sys.env("WORKSPACE")}/tmp/international_addresses"
   }
 
   final class RdsCredentials() extends Credentials {
@@ -123,27 +107,15 @@ object Repository {
     override def database: String =
       retrieveCredentials("address_lookup_rds_database")
 
-    override def admin: String =
-      retrieveCredentials("address_lookup_rds_admin_user")
-
-    override def adminPassword: String =
-      retrieveCredentials("address_lookup_rds_admin_password")
-
     override def ingestor: String =
       retrieveCredentials("address_lookup_rds_ingest_user")
 
     override def ingestorPassword: String =
       retrieveCredentials("address_lookup_rds_ingest_password")
 
-    override def reader: String =
-      retrieveCredentials("address_lookup_rds_readonly_user")
-
-    override def readerPassword: String =
-      retrieveCredentials("address_lookup_rds_readonly_password")
-
     override def nonukBucketName: String =
       retrieveCredentials("non_uk_address_lookup_bucket")
 
-    override def csvBaseDir: String = "/mnt/efs/international-addresses"
+    override def nonUkBaseDir: String = "/mnt/efs/international-addresses/"
   }
 }

@@ -9,20 +9,24 @@ import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
 
 class InternationalAddressesIngestLambdaFunction
-    extends RequestHandler[jMap[String, Any], Long] {
+  extends RequestHandler[jMap[String, Object], Long] {
 
-  override def handleRequest(data: jMap[String, Any],
+  override def handleRequest(input: jMap[String, Object],
                              contextNotUsed: Context): Long = {
-    val inputs: Map[String, Any] = data.asScala.toMap
+    val (schemaName, country, file) = {
+      val scalaInput = input.asScala
+      val _schemaName = scalaInput.apply("schemaName").asInstanceOf[String]
+      val _country = scalaInput.apply("country").asInstanceOf[String]
+      val _file = scalaInput.apply("file").asInstanceOf[String]
+      (_schemaName, _country, _file)
+    }
 
-    Await
-      .result(doIngest(Repository().forIngest, inputs), 1.minutes)
+    Await.result(doIngest(Repository().forIngest, schemaName, country, file), 5.minutes)
   }
 
-  private[lambdas] def doIngest(repository: IngestRepository,
-                                inputs: Map[String, Any]): Future[Long] = {
+  def doIngest(repository: IngestRepository, schemaName: String, country: String, fileToIngest: String): Future[Long] = {
     println(s"Beginning ingest of international addresses")
 
-    repository.ingest().unsafeToFuture()
+    repository.ingest(schemaName, country, fileToIngest).unsafeToFuture()
   }
 }
