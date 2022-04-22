@@ -33,12 +33,12 @@ class IngestRepository(transactor: => Transactor[IO],
   }
 
   def createSchema(): IO[String] = for {
+    statusDdl   <- resourceAsString("/create_status_table_ddl.sql")
+    _           <- csql(statusDdl).update.run.transact(transactor)
     sTD         <- schemasToDrop()
     _           <- dropSchemas(sTD)
     schemaName  <- createSchemaName()
-    rawDdl      <- resourceAsString("/create_schema_ddl.sql")
-    ddl         <- IO(rawDdl.replace("__schema__", schemaName))
-    _           <- csql(ddl).update.run.transact(transactor)
+    _           <- csql(s"CREATE SCHEMA $schemaName;").update.run.transact(transactor)
     rawProcDdl  <- resourceAsString("/create_view_function_ddl.sql")
     procDdl     <- IO {
                       S3FileDownloader.countriesOfInterest.map { c =>
