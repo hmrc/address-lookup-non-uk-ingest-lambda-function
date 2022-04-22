@@ -25,15 +25,12 @@ class InternationalAddressesEnsureSchemaLambdaFunction
 
 object InternationalAddressesEnsureSchemaLambdaFunction {
   def updateJavaInput(input: jMap[String, Object], schemaName: String): jMap[String, Object] = {
-    val sInput = input.asScala
-    val filesToIngest = sInput("filesToIngest")
-    val sFileList = filesToIngest.asInstanceOf[jList[jMap[String, String]]].asScala
-    sFileList.map { m => m.asInstanceOf[jMap[String, String]].put("schemaName", schemaName) }
-    sInput.put("filesToIngest", sFileList.asJava)
-    sInput.put("schemaName", schemaName)
-    sInput.put("countries", S3FileDownloader.countriesOfInterest.map { c =>
+    input.put("schemaName", schemaName)
+    val filesToIngest = input.get("filesToIngest").asInstanceOf[jList[jMap[String, String]]]
+    filesToIngest.forEach(m => m.put("schemaName", schemaName))
+    input.put("countries", S3FileDownloader.countriesOfInterest.map { c =>
       Map("country" -> c, "schemaName" -> schemaName).asJava
     }.asJava)
-    sInput.asJava
+    input
   }
 }

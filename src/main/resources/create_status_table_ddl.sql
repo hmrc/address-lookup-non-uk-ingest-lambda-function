@@ -1,4 +1,3 @@
-CREATE SCHEMA __schema__;
 CREATE TABLE IF NOT EXISTS public.nonuk_address_lookup_status (
     host_schema     VARCHAR NOT NULL PRIMARY KEY,
     status          VARCHAR NOT NULL,

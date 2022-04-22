@@ -146,7 +146,7 @@ class S3FileDownloader(fromBucket: String,
 }
 
 object S3FileDownloader {
-  val countriesOfInterest: List[String] = List("bm", "vg", "nl")
+  val countriesOfInterest: List[String] = List("bm", "nl", "vg")
 
   def countryPattern(prefix: String): Regex = {
     val countryPatternString = s"${prefix}/(\\p{Lower}{2})/.+"
