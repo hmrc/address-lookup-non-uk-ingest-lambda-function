@@ -16,16 +16,17 @@ BEGIN
 
     CREATE MATERIALIZED VIEW __schema__.__table__
     AS
-    SELECT rt.id                                                                                      AS uid,
-           NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'id')::text), '""', ''), '')       AS id,
-           NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'hash')::text), '""', ''), '')     AS hash,
-           NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'number')::text), '""', ''), '')   AS number,
-           NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'street')::text), '""', ''), '')   AS street,
-           NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'unit')::text), '""', ''), '')     AS unit,
-           NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'city')::text), '""', ''), '')     AS city,
-           NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'district')::text), '""', ''), '') AS district,
-           NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'region')::text), '""', ''), '')   AS region,
-           NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'postcode')::text), '""', ''), '') AS postcode,
+    SELECT rt.id                                                                                                                  AS uid,
+           NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'id')::text), '""', ''), '')                                   AS id,
+           NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'hash')::text), '""', ''), '')                                 AS hash,
+           CONCAT(UPPER('__table__'), NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'hash')::text), '""', ''), ''))     AS cip_id,
+           NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'number')::text), '""', ''), '')                               AS number,
+           NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'street')::text), '""', ''), '')                               AS street,
+           NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'unit')::text), '""', ''), '')                                 AS unit,
+           NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'city')::text), '""', ''), '')                                 AS city,
+           NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'district')::text), '""', ''), '')                             AS district,
+           NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'region')::text), '""', ''), '')                               AS region,
+           NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'postcode')::text), '""', ''), '')                             AS postcode,
            to_tsvector('english'::regconfig, array_to_string(
                ARRAY [
                    NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'number')::text), '""', ''), ''),
@@ -35,7 +36,7 @@ BEGIN
                    NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'district')::text), '""', ''), ''),
                    NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'region')::text), '""', ''), ''),
                    NULLIF(REPLACE(BTRIM((rt.data::json -> 'properties' ->> 'postcode')::text), '""', ''), '')],
-               ' '::text))                                                                                    AS address_lookup_ft_col
+               ' '::text))                                                                                                        AS address_lookup_ft_col
     FROM __schema__.raw___table__ rt;
 
     UPDATE public.nonuk_address_lookup_status
@@ -57,6 +58,7 @@ BEGIN
     SELECT uid,
            id,
            hash,
+           cip_id,
            number,
            street,
            unit,
