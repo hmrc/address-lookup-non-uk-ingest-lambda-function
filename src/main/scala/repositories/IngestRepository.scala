@@ -39,15 +39,8 @@ class IngestRepository(transactor: => Transactor[IO],
     _           <- dropSchemas(sTD)
     schemaName  <- createSchemaName()
     _           <- csql(s"CREATE SCHEMA $schemaName;").update.run.transact(transactor)
-    rawProcDdl  <- resourceAsString("/create_view_function_ddl.sql")
-    procDdl     <- IO {
-                      S3FileDownloader.countriesOfInterest.map { c =>
-                        rawProcDdl
-                          .replace("__schema__", schemaName)
-                          .replace("__table__", c)
-                      }
-                    }
-    _           <- procDdl.map(pddl => csql(pddl).update.run.transact(transactor)).sequence
+    procDdl     <- resourceAsString("/create_view_function_ddl.sql")
+    _           <- csql(procDdl).update.run.transact(transactor)
     statusDdl   <- IO {
                         S3FileDownloader.countriesOfInterest.map { c =>
                           createStatusRow(schemaName, c)
@@ -96,8 +89,8 @@ class IngestRepository(transactor: => Transactor[IO],
       res     <- Fragment.const(ddl).update.run.transact(transactor)
     } yield res
 
-  def postIngestProcessing(countries: List[Map[String, String]]): IO[Long] = for {
-    mv  <- createMaterializedView(countries)
+  def postIngestProcessing(schema: String, countries: List[Map[String, String]]): IO[Long] = for {
+    mv  <- createMaterializedView(schema, countries)
   } yield mv
 
   def ingestFile(schemaName: String, table: String, filePath: String): IO[Long] = for {
@@ -110,10 +103,10 @@ class IngestRepository(transactor: => Transactor[IO],
                     }
     } yield res
 
-  def createMaterializedView(countries: List[Map[String, String]]): IO[Long] = for {
+  def createMaterializedView(schema: String, countries: List[Map[String, String]]): IO[Long] = for {
       statements  <- IO {
                       countries.map { m =>
-                        s"""SELECT public.create_nonuk_materialized_view_for_${m("country")}();"""
+                        s"""SELECT public.create_materialized_view('${schema}', '${m("country")}');"""
                       }.mkString("\n")
                     }
       ddlSql      <- resourceAsString("/invoke_create_view_function_ddl.sql").map(
