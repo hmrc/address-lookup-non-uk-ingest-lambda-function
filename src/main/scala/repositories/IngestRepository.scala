@@ -37,6 +37,7 @@ class IngestRepository(transactor: => Transactor[IO],
     _           <- csql(statusDdl).update.run.transact(transactor)
     sTD         <- schemasToDrop()
     _           <- dropSchemas(sTD)
+    _           <- cleanOldFunctions()
     schemaName  <- createSchemaName()
     _           <- csql(s"CREATE SCHEMA $schemaName;").update.run.transact(transactor)
     procDdl     <- resourceAsString("/create_view_function_ddl.sql")
@@ -72,6 +73,12 @@ class IngestRepository(transactor: => Transactor[IO],
     }
   }
 
+  private def cleanOldFunctions(): IO[List[Int]] = for {
+    sqlStr            <- resourceAsString("/functions_to_drop.sql")
+    functionsToDrop   <- csql(sqlStr).query[String].to[List].transact(transactor)
+    droppedFunctions  <- functionsToDrop.map(f => csql(s"DROP FUNCTION IF EXISTS $f").update.run.transact(transactor)).sequence
+  } yield droppedFunctions
+
   def initialiseCountryTablesInSchema(schemaName: String): IO[Int] = for {
     x <- S3FileDownloader.countriesOfInterest
           .map(initialiseCountryTableInSchema(schemaName, _))
@@ -106,7 +113,7 @@ class IngestRepository(transactor: => Transactor[IO],
   def createMaterializedView(schema: String, countries: List[Map[String, String]]): IO[Long] = for {
       statements  <- IO {
                       countries.map { m =>
-                        s"""SELECT public.create_materialized_view('${schema}', '${m("country")}');"""
+                        s"""SELECT public.create_non_uk_address_lookup_materialized_view('${schema}', '${m("country")}');"""
                       }.mkString("\n")
                     }
       ddlSql      <- resourceAsString("/invoke_create_view_function_ddl.sql").map(

@@ -1,4 +1,4 @@
-CREATE OR REPLACE FUNCTION create_materialized_view(the_schema_name VARCHAR, the_country VARCHAR) RETURNS BOOLEAN
+CREATE OR REPLACE FUNCTION create_non_uk_address_lookup_materialized_view(the_schema_name VARCHAR, the_country VARCHAR) RETURNS BOOLEAN
     LANGUAGE plpgsql
 AS
 $$
