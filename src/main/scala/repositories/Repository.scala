@@ -91,6 +91,8 @@ object Repository {
   }
 
   final class RdsCredentials() extends Credentials {
+    private val credStashPrefix = sys.env.getOrElse("CREDSTASH_PREFIX", "")
+
     private val credstashTableName = "credential-store"
     private val context: util.Map[String, String] =
       Map("role" -> "address_lookup_file_download").asJava
@@ -100,21 +102,21 @@ object Repository {
       credStash.getSecret(credstashTableName, credential, context).trim
     }
 
-    override def host: String = retrieveCredentials("address_lookup_rds_host")
+    override def host: String = retrieveCredentials(s"${credStashPrefix}address_lookup_rds_host")
 
     override def port: String = "5432"
 
     override def database: String =
-      retrieveCredentials("address_lookup_rds_database")
+      retrieveCredentials(s"${credStashPrefix}address_lookup_rds_database")
 
     override def ingestor: String =
-      retrieveCredentials("address_lookup_rds_ingest_user")
+      retrieveCredentials(s"${credStashPrefix}address_lookup_rds_ingest_user")
 
     override def ingestorPassword: String =
-      retrieveCredentials("address_lookup_rds_ingest_password")
+      retrieveCredentials(s"${credStashPrefix}address_lookup_rds_ingest_password")
 
     override def nonukBucketName: String =
-      retrieveCredentials("non_uk_address_lookup_bucket")
+      retrieveCredentials(s"${credStashPrefix}non_uk_address_lookup_bucket")
 
     override def nonUkBaseDir: String = "/mnt/efs/international-addresses/"
   }
