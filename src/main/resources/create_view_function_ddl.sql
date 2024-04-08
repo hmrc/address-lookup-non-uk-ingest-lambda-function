@@ -1,36 +1,25 @@
-CREATE OR REPLACE FUNCTION create_non_uk_address_lookup_materialized_view(the_schema_name VARCHAR, the_country VARCHAR) RETURNS BOOLEAN
-    LANGUAGE plpgsql
-AS
-$$
-DECLARE
-BEGIN
-    EXECUTE format('SET search_path = %I', the_schema_name);
-
-    EXECUTE format('
+CREATE OR REPLACE FUNCTION create_non_uk_address_lookup_materialized_view(the_schema_name VARCHAR, the_country VARCHAR) RETURNS BOOLEAN LANGUAGE plpgsql AS $$ DECLARE BEGIN EXECUTE format('SET search_path = %I', the_schema_name); EXECUTE format('
             DROP MATERIALIZED VIEW IF EXISTS  %1$I.%2$I;
             CREATE MATERIALIZED VIEW %1$I.%2$I AS
-            SELECT rt.id                                                                                      AS uid,
-               NULLIF(replace(btrim((rt.data::json -> ''properties'' ->> ''id'')::text), ''""'', ''''), '''')       AS id,
-               NULLIF(replace(btrim((rt.data::json -> ''properties'' ->> ''hash'')::text), ''""'', ''''), '''')     AS hash,
-               CONCAT(UPPER(''%2$I''), NULLIF(REPLACE(BTRIM((rt.data::json -> ''properties'' ->> ''hash'')::text), ''""'', ''''), ''''))     AS cip_id,
-               NULLIF(replace(btrim((rt.data::json -> ''properties'' ->> ''number'')::text), ''""'', ''''), '''')   AS number,
-               NULLIF(replace(btrim((rt.data::json -> ''properties'' ->> ''street'')::text), ''""'', ''''), '''')   AS street,
-               NULLIF(replace(btrim((rt.data::json -> ''properties'' ->> ''unit'')::text), ''""'', ''''), '''')     AS unit,
-               NULLIF(replace(btrim((rt.data::json -> ''properties'' ->> ''city'')::text), ''""'', ''''), '''')     AS city,
-               NULLIF(replace(btrim((rt.data::json -> ''properties'' ->> ''district'')::text), ''""'', ''''), '''') AS district,
-               NULLIF(replace(btrim((rt.data::json -> ''properties'' ->> ''region'')::text), ''""'', ''''), '''')   AS region,
-               NULLIF(replace(btrim((rt.data::json -> ''properties'' ->> ''postcode'')::text), ''""'', ''''), '''') AS postcode,
-               to_tsvector(''english''::regconfig, array_to_string(
-                   ARRAY [
-                       NULLIF(replace(btrim((rt.data::json -> ''properties'' ->> ''number'')::text), ''""'', ''''), ''''),
-                       NULLIF(replace(btrim((rt.data::json -> ''properties'' ->> ''street'')::text), ''""'', ''''), ''''),
-                       NULLIF(replace(btrim((rt.data::json -> ''properties'' ->> ''unit'')::text), ''""'', ''''), ''''),
-                       NULLIF(replace(btrim((rt.data::json -> ''properties'' ->> ''city'')::text), ''""'', ''''), ''''),
-                       NULLIF(replace(btrim((rt.data::json -> ''properties'' ->> ''district'')::text), ''""'', ''''), ''''),
-                       NULLIF(replace(btrim((rt.data::json -> ''properties'' ->> ''region'')::text), ''""'', ''''), ''''),
-                       NULLIF(replace(btrim((rt.data::json -> ''properties'' ->> ''postcode'')::text), ''""'', ''''), '''')],
-                   '' ''::text))                                                                                    AS nonuk_address_lookup_ft_col
-            FROM raw_%2$I as rt;
+            WITH dups as (SELECT *,
+                ROW_NUMBER() OVER (
+                PARTITION BY cip_hash ORDER BY id DESC) AS rn
+                FROM %1$I.expanded_raw_%2$I)
+            SELECT rt.id                        AS uid,
+               id       AS id,
+               hash     AS hash,
+               cip_hash     AS cip_hash,
+               CONCAT(UPPER(''%2$I''), cip_hash)     AS cip_id,
+               number   AS number,
+               street   AS street,
+               unit     AS unit,
+               city     AS city,
+               district AS district,
+               region   AS region,
+               postcode AS postcode,
+               to_tsvector(''english''::regconfig, ' || 'array_to_string(
+                   ARRAY [number,street,unit,city,district,region,postcode],'' ''::text)) AS nonuk_address_lookup_ft_col
+            FROM dups as rt WHERE rn = 1;
 
             CREATE INDEX IF NOT EXISTS address_lookup_%2$I_ft_col_idx
              ON %1$I.%2$I USING gin (nonuk_address_lookup_ft_col);
@@ -41,6 +30,7 @@ BEGIN
             SELECT uid,
                    id,
                    hash,
+                   cip_hash,
                    cip_id,
                    number,
                    street,
@@ -63,9 +53,9 @@ EXCEPTION
     WHEN OTHERS THEN
         UPDATE public.nonuk_address_lookup_status
         SET status    = 'errored',
-            error_message = SQLERRM,
+            error_message = format('[%I] - %I', SQLSTATE, SQLERRM),
             timestamp = now()
-        WHERE host_schema = format('%I-%I', '__schema__', '__table__');
+        WHERE host_schema = format('%I-%I', the_schema_name, the_country);
 
         RETURN FALSE;
 END;

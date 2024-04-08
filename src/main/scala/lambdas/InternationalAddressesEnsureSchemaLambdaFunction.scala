@@ -14,7 +14,7 @@ class InternationalAddressesEnsureSchemaLambdaFunction
   extends RequestHandler[jMap[String, Object], jMap[String, Object]] {
 
   override def handleRequest(input: jMap[String, Object], contextNotUsed: Context): jMap[String, Object] = {
-    val schemaName = Await.result(doEnsureSchema(Repository().forIngest), 1.minute)
+    val schemaName = Await.result(doEnsureSchema(Repository().forIngest), 5.minute)
     updateJavaInput(input, schemaName)
   }
 
