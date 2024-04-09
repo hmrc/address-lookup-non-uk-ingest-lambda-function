@@ -11,15 +11,16 @@ import repositories.Repository.Credentials
 
 import java.io.{File, FileInputStream, InputStream}
 import java.time.format.DateTimeFormatter
-import java.time.{LocalDateTime, ZoneId}
+import java.time.{Instant, LocalDateTime, ZoneId}
 import scala.io.Source
 
 class IngestRepository(transactor: => Transactor[IO],
                        private val credentials: Credentials) {
 
-  def ingest(schemaName: String, country: String, fileToIngest: String): IO[Long] = for {
-    updateCount <- ingestFile(schemaName, country, fileToIngest)
-  } yield updateCount
+  def ingest(schemaName: String, country: String, fileToIngest: String): IO[Long] =
+    for {
+      updateCount <- ingestFile(schemaName, country, fileToIngest)
+    } yield updateCount
 
   private def createStatusRow(schemaName: String, country: String): String =
     s"""INSERT INTO public.nonuk_address_lookup_status(host_schema, status, timestamp)
@@ -81,20 +82,27 @@ class IngestRepository(transactor: => Transactor[IO],
 
   def initialiseCountryTablesInSchema(schemaName: String): IO[Int] = for {
     x <- S3FileDownloader.countriesOfInterest
-          .map(initialiseCountryTableInSchema(schemaName, _))
+          .map(initialiseCountryTablesInSchema(schemaName, _))
           .sequence
   } yield x.sum
 
-  def initialiseCountryTableInSchema(schemaName: String, countryCode: String): IO[Int] =
+  def initialiseCountryTablesInSchema(schemaName: String, countryCode: String): IO[Int] =
     for {
-      rawDdl  <- resourceAsString("/create_raw_table_ddl.sql")
-      ddl     <- IO {
-                  rawDdl
+      rawDdl          <- resourceAsString("/create_raw_table_ddl.sql")
+      ddl             <- IO {
+                          rawDdl
+                            .replace("__schema__", schemaName)
+                            .replace("__table__", countryCode)
+                        }
+      expandedRawDdl  <- resourceAsString("/create_expanded_raw_table_ddl.sql")
+      expandedDdl     <- IO {
+                  expandedRawDdl
                     .replace("__schema__", schemaName)
                     .replace("__table__", countryCode)
                 }
-      res     <- Fragment.const(ddl).update.run.transact(transactor)
-    } yield res
+      res             <- Fragment.const(ddl).update.run.transact(transactor)
+      expandedRes     <- Fragment.const(expandedDdl).update.run.transact(transactor)
+    } yield expandedRes
 
   def postIngestProcessing(schema: String, countries: List[Map[String, String]]): IO[Long] = for {
     mv  <- createMaterializedView(schema, countries)
@@ -108,6 +116,12 @@ class IngestRepository(transactor: => Transactor[IO],
       res       <- inputData.use[Long] {
                       in => PHC.pgGetCopyAPI(PFCM.copyIn(copySql, in)).transact(transactor)
                     }
+    } yield res
+
+  def expandJsonToFields(schemaName: String, table: String): IO[Long] = for {
+      populateSql   <- resourceAsString("/populate_expanded_raw_table_ddl.sql")
+                        .map(s => s.replaceAll("__schema__", schemaName).replaceAll("__table__", table))
+      res           <- csql(populateSql).update.run.transact(transactor)
     } yield res
 
   def createMaterializedView(schema: String, countries: List[Map[String, String]]): IO[Long] = for {

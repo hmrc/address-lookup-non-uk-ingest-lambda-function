@@ -21,7 +21,7 @@ class InternationalAddressesIngestLambdaFunction
       (_schemaName, _country, _file)
     }
 
-    Await.result(doIngest(Repository().forIngest, schemaName, country, file), 5.minutes)
+    Await.result(doIngest(Repository().forIngest, schemaName, country, file), 15.minutes)
   }
 
   def doIngest(repository: IngestRepository, schemaName: String, country: String, fileToIngest: String): Future[Long] = {

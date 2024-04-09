@@ -16,7 +16,7 @@ class InternationalAddressesPostIngestLambdaFunction
     val countries = input.get("countries").asInstanceOf[jList[jMap[String, String]]].asScala.map(_.asScala.toMap).toList
     val schemaName = input.get("schemaName").asInstanceOf[String]
     try {
-      Await.ready(doPostIngest(Repository().forIngest, schemaName, countries), 1.minutes)
+      Await.ready(doPostIngest(Repository().forIngest, schemaName, countries), 15.minutes)
     } catch {
       case t: Throwable => println(s">>> t: ${t}")
     }
