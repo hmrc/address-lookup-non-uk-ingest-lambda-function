@@ -95,28 +95,38 @@ object Repository {
 
     private val credstashTableName = "credential-store"
     private val context: util.Map[String, String] =
+      Map("role" -> "cip_address_search").asJava
+
+    private val lookupContext: util.Map[String, String] =
       Map("role" -> "address_lookup_file_download").asJava
 
-    private def retrieveCredentials(credential: String) = {
+    private def retrieveCredentials(
+      credential: String,
+      context: util.Map[String, String] = context
+    ) = {
       val credStash = new JCredStash()
       credStash.getSecret(credstashTableName, credential, context).trim
     }
 
-    override def host: String = retrieveCredentials(s"${credStashPrefix}address_lookup_rds_host")
+    override def host: String =
+      retrieveCredentials(s"address_search_rds_rw_proxy")
 
     override def port: String = "5432"
 
     override def database: String =
-      retrieveCredentials(s"${credStashPrefix}address_lookup_rds_database")
+      retrieveCredentials(s"address_search_rds_database")
 
     override def ingestor: String =
-      retrieveCredentials(s"${credStashPrefix}address_lookup_rds_ingest_user")
+      retrieveCredentials(s"address_search_rds_admin_user")
 
     override def ingestorPassword: String =
-      retrieveCredentials(s"${credStashPrefix}address_lookup_rds_ingest_password")
+      retrieveCredentials(s"address_search_rds_admin_password")
 
     override def nonukBucketName: String =
-      retrieveCredentials(s"${credStashPrefix}non_uk_address_lookup_bucket")
+      retrieveCredentials(
+        s"${credStashPrefix}non_uk_address_lookup_bucket",
+        lookupContext
+      )
 
     override def nonUkBaseDir: String = "/mnt/efs/international-addresses/"
   }
