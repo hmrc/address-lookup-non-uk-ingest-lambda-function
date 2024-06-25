@@ -109,7 +109,7 @@ object Repository {
     }
 
     override def host: String =
-      retrieveCredentials(s"address_search_rds_rw_proxy")
+      retrieveCredentials(s"address_search_rds_rw_host")
 
     override def port: String = "5432"
 
