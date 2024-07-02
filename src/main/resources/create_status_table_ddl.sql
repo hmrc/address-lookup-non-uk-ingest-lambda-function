@@ -4,4 +4,4 @@ CREATE TABLE IF NOT EXISTS public.nonuk_address_lookup_status (
     error_message   VARCHAR NULL,
     timestamp       TIMESTAMP NOT NULL
     );
-GRANT SELECT ON public.nonuk_address_lookup_status TO addresslookupreader;
+-- GRANT SELECT ON public.nonuk_address_lookup_status TO addresslookupreader;

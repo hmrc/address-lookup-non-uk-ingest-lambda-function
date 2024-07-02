@@ -42,7 +42,7 @@ CREATE OR REPLACE FUNCTION create_non_uk_address_lookup_materialized_view(the_sc
                    nonuk_address_lookup_ft_col
             FROM %1$I.%2$I;
 
-            GRANT SELECT ON public.%2$I TO addresslookupreader;
+--             GRANT SELECT ON public.%2$I TO addresslookupreader;
 
             UPDATE public.nonuk_address_lookup_status
             SET status    = ''completed'',
