@@ -10,5 +10,9 @@ Resources:
       Handler: lambdas.InternationalAddressesFileDownloadLambdaFunction
       CodeUri: target/scala-2.12/address-lookup-non-uk-ingest-lambda-functions_2.12-1.1.jar
       Timeout: 30
+      Environment:
+        Variables:
+          JAVA_TOOL_OPTIONS: --add-opens=java.base/java.lang=ALL-UNNAMED
+
     Metadata:
       BuildMethod: makefile
