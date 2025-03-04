@@ -1,7 +1,7 @@
 ThisBuild / name := "address-lookup-non-uk-ingest-lambda-functions"
-ThisBuild / version := "1.1"
+ThisBuild / version := "1.2"
 ThisBuild / scalaVersion := "2.12.12"
-ThisBuild / assemblyJarName := "address-lookup-non-uk-ingest-lambda-functions_2.12-1.1.jar"
+ThisBuild / assemblyJarName := "address-lookup-non-uk-ingest-lambda-functions_2.12-1.2.jar"
 ThisBuild / parallelExecution := false
 
 val doobieVersion = "0.7.1"
