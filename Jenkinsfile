@@ -4,6 +4,13 @@ pipeline {
       label 'commonagent'
   }
 
+  environment {
+    JAVA_HOME = '/usr/lib/jvm/java-17-openjdk-amd64'
+    PATH = "/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH"
+    JDK_FILE_NAME = 'openjdk-jre-17.0.13+11.tgz'
+    JAVA_VERSION = '17.0.13+11'
+  }
+
   stages {
     stage('Build artefact') {
       steps {
