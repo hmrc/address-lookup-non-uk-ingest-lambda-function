@@ -3,7 +3,7 @@ package lambdas
 import com.amazonaws.services.lambda.runtime.{Context, RequestHandler}
 import repositories.Repository
 import util.S3FileDownloader
-
+import scala.concurrent.ExecutionContext.Implicits.global
 import java.util.{Map => jMap}
 import scala.collection.JavaConverters._
 

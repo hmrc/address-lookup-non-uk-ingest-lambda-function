@@ -2,7 +2,7 @@ package lambdas
 
 import com.amazonaws.services.lambda.runtime.{Context, RequestHandler}
 import repositories.{IngestRepository, Repository}
-
+import cats.effect.unsafe.implicits.global
 import java.util.{Map => jMap}
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}

@@ -4,7 +4,7 @@ import com.amazonaws.services.lambda.runtime.{Context, RequestHandler}
 import lambdas.InternationalAddressesEnsureSchemaLambdaFunction.updateJavaInput
 import repositories.{IngestRepository, Repository}
 import util.S3FileDownloader
-
+import cats.effect.unsafe.implicits.global
 import scala.concurrent.duration.DurationInt
 import scala.concurrent.{Await, Future}
 import java.util.{List => jList, Map => jMap}

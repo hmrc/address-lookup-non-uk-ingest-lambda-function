@@ -9,7 +9,10 @@ import util.S3FileDownloader.{countriesOfInterest, country}
 import java.io.{BufferedWriter, FileOutputStream, OutputStreamWriter}
 import java.nio.file.{Files, Paths}
 import scala.annotation.tailrec
-import scala.collection.JavaConverters._
+import scala.collection.JavaConverters.*
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, Future}
 import scala.io.{BufferedSource, Source}
 import scala.util.matching.Regex
 
@@ -35,10 +38,13 @@ class S3FileDownloader(fromBucket: String,
 
       val countryToFileKeysToDownload: List[(String, String)] = getFileKeysToDownload
       println(s">>> countryToFileKeysToDownload: ${countryToFileKeysToDownload}")
-      val done = countryToFileKeysToDownload.par.map {
-        case (cc, filesToDownload) => cc -> downloadFile(client, filesToDownload)
-      }
-      done.toList.flatMap {
+      val done = Await.result(
+        Future.traverse(countryToFileKeysToDownload) {
+          case (cc, filesToDownload) => Future(cc -> downloadFile(client, filesToDownload))
+        },
+        Duration.Inf
+      )
+      done.flatMap {
         case (cc, fls) => fls.map(f => Map("country" -> cc, "file" -> f))
       }
     } else List()
