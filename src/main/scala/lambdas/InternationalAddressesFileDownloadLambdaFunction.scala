@@ -2,13 +2,14 @@ package lambdas
 
 import com.amazonaws.services.lambda.runtime.{Context, RequestHandler}
 import repositories.Repository
-import util.S3FileDownloader
+import util.{Logging, S3FileDownloader}
+
 import scala.concurrent.ExecutionContext.Implicits.global
-import java.util.{Map => jMap}
-import scala.collection.JavaConverters._
+import java.util.Map as jMap
+import scala.collection.JavaConverters.*
 
 class InternationalAddressesFileDownloadLambdaFunction
-  extends RequestHandler[jMap[String, String], jMap[String, Object]] {
+  extends RequestHandler[jMap[String, String], jMap[String, Object]] with Logging {
 
   override def handleRequest(data: jMap[String, String], contextNotUsed: Context): jMap[String, Object] = {
     val forceDownload = data.asScala.getOrElse("force", "false").toBoolean
@@ -26,7 +27,7 @@ class InternationalAddressesFileDownloadLambdaFunction
   private[lambdas] def doDownload(bucketName: String,
                                   outputBasePath: String,
                                   force: Boolean = false): List[Map[String, String]] = {
-    println(s"Beginning download of international addresses")
+    logger.info(s"Beginning download of international addresses")
 
     new S3FileDownloader(bucketName, outputBasePath)
       .downloadFiles(force = force)

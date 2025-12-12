@@ -18,7 +18,7 @@ import scala.util.matching.Regex
 
 class S3FileDownloader(fromBucket: String,
                        outputBasePath: String,
-                       prefix: String = "collection-global") {
+                       prefix: String = "collection-global") extends Logging {
   // Ensure that the outputBasePath exists
   val _outputBasePath = Paths.get(outputBasePath).toFile
   if (!_outputBasePath.exists()) _outputBasePath.mkdirs()
@@ -37,13 +37,10 @@ class S3FileDownloader(fromBucket: String,
         AmazonS3ClientBuilder.standard().withRegion(Regions.EU_WEST_2).build()
 
       val countryToFileKeysToDownload: List[(String, String)] = getFileKeysToDownload
-      println(s">>> countryToFileKeysToDownload: ${countryToFileKeysToDownload}")
-      val done = Await.result(
-        Future.traverse(countryToFileKeysToDownload) {
-          case (cc, filesToDownload) => Future(cc -> downloadFile(client, filesToDownload))
-        },
-        Duration.Inf
-      )
+      logger.info(s">>> countryToFileKeysToDownload: ${countryToFileKeysToDownload}")
+      val done = countryToFileKeysToDownload.map {
+        case (cc, filesToDownload) => cc -> downloadFile(client, filesToDownload)
+      }
       done.flatMap {
         case (cc, fls) => fls.map(f => Map("country" -> cc, "file" -> f))
       }
@@ -93,7 +90,7 @@ class S3FileDownloader(fromBucket: String,
   }
 
   def removeOldFiles(): Unit = {
-    println(s">>> Removing old files...")
+    logger.info(s">>> Removing old files...")
 
     val pathsToDelete = {
       os.walk(path = os.Path(outputBasePath)).groupBy(_.toIO.isFile)
@@ -102,7 +99,7 @@ class S3FileDownloader(fromBucket: String,
     pathsToDelete
       .getOrElse(true, Seq[Path]())
       .foreach { f =>
-        println(s">>> Deleting file : ${f}")
+        logger.info(s">>> Deleting file : ${f}")
         Files.deleteIfExists(f.toIO.toPath)
       }
 
@@ -111,7 +108,7 @@ class S3FileDownloader(fromBucket: String,
       .sortBy(_.segmentCount)
       .reverse
       .foreach { d =>
-        println(s">>> Deleting dir: ${d}")
+        logger.info(s">>> Deleting dir: ${d}")
         Files.delete(d.toIO.toPath)
       }
   }
@@ -164,7 +161,7 @@ object S3FileDownloader {
     p match {
       case theCountryPattern(c) => Some(c)
       case _                    =>
-        println(s">>> Couldn't find country in path: ${p}")
+        logger.info(s">>> Couldn't find country in path: ${p}")
         None
     }
   }

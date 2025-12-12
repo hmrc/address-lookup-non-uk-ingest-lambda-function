@@ -11,6 +11,8 @@ val doobieVersion = "1.0.0-RC11"
 ThisBuild / assemblyMergeStrategy := {
   case PathList("META-INF", "io.netty.versions.properties") => MergeStrategy.first
   case PathList("mime.types") => MergeStrategy.first
+  case PathList("META-INF", "versions", "9", "module-info.class") => MergeStrategy.discard
+  case PathList("module-info.class")  => MergeStrategy.discard
   case x =>
     val oldStrategy = (ThisBuild / assemblyMergeStrategy).value
     oldStrategy(x)
@@ -22,5 +24,8 @@ ThisBuild / libraryDependencies ++= Seq(
   "me.lamouri"              %   "jcredstash"            % "2.1.1",
   "com.lihaoyi"             %%  "os-lib"                % "0.11.6",
   "org.tpolecat"            %%  "doobie-core"           % doobieVersion,
-  "org.tpolecat"            %%  "doobie-postgres"       % doobieVersion
+  "org.tpolecat"            %%  "doobie-postgres"       % doobieVersion,
+  "ch.qos.logback"          %   "logback-core"          % "1.5.21",
+  "ch.qos.logback"          %   "logback-classic"       % "1.5.21",
+  "org.slf4j"               %   "slf4j-api"             % "2.0.17"
 )

@@ -3,13 +3,15 @@ package lambdas
 import com.amazonaws.services.lambda.runtime.{Context, RequestHandler}
 import repositories.{IngestRepository, Repository}
 import cats.effect.unsafe.implicits.global
-import java.util.{Map => jMap}
-import scala.collection.JavaConverters._
-import scala.concurrent.duration._
+import util.Logging
+
+import java.util.Map as jMap
+import scala.collection.JavaConverters.*
+import scala.concurrent.duration.*
 import scala.concurrent.{Await, Future}
 
 class InternationalAddressesCheckStatusLambdaFunction
-  extends RequestHandler[String, jMap[String, String]] {
+  extends RequestHandler[String, jMap[String, String]] with Logging {
 
   override def handleRequest(schemaName: String,
                              contextNotUsed: Context): jMap[String, String] = {
@@ -17,7 +19,7 @@ class InternationalAddressesCheckStatusLambdaFunction
   }
 
   def doCheckStatus(repository: IngestRepository, schemaName: String): Future[Map[String, String]] = {
-    println(s"Beginning check status of international addresses")
+    logger.info(s"Beginning check status of international addresses")
 
     repository.checkStatus(schemaName).map(statii => statii.flatMap {
       case (_, status, errorMessage) => Map("status" -> status, "errorMessage" -> errorMessage.orNull)

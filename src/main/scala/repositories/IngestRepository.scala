@@ -159,6 +159,4 @@ class IngestRepository(transactor: => Transactor[IO],
       )(s => IO(s.close()))
       .use(s => IO(s.mkString))
   }
-
-  private def printLine(s: String): IO[Unit] = IO(println(s))
 }
