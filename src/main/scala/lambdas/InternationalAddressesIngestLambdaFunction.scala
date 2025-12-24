@@ -2,14 +2,16 @@ package lambdas
 
 import com.amazonaws.services.lambda.runtime.{Context, RequestHandler}
 import repositories.{IngestRepository, Repository}
+import cats.effect.unsafe.implicits.global
+import util.Logging
 
-import java.util.{Map => jMap}
-import scala.collection.JavaConverters._
-import scala.concurrent.duration._
+import java.util.Map as jMap
+import scala.collection.JavaConverters.*
+import scala.concurrent.duration.*
 import scala.concurrent.{Await, Future}
 
 class InternationalAddressesIngestLambdaFunction
-  extends RequestHandler[jMap[String, Object], Long] {
+  extends RequestHandler[jMap[String, Object], Long] with Logging {
 
   override def handleRequest(input: jMap[String, Object],
                              contextNotUsed: Context): Long = {
@@ -25,7 +27,7 @@ class InternationalAddressesIngestLambdaFunction
   }
 
   def doIngest(repository: IngestRepository, schemaName: String, country: String, fileToIngest: String): Future[Long] = {
-    println(s"Beginning ingest of international addresses")
+    logger.info(s"Beginning ingest of international addresses")
 
     repository.ingest(schemaName, country, fileToIngest).unsafeToFuture()
   }

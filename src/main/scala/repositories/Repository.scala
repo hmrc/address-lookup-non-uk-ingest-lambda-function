@@ -1,13 +1,13 @@
 package repositories
 
-import cats.effect.{ContextShift, IO}
+import cats.effect.IO
 import doobie.Transactor
 import me.lamouri.JCredStash
 
 import java.util
-import scala.collection.JavaConverters._
-import scala.concurrent.ExecutionContext
-import scala.concurrent.ExecutionContext.Implicits.global
+import java.util.Properties
+import scala.collection.*
+import scala.collection.JavaConverters.mapAsJavaMapConverter
 
 /**
   * Assume that the database has already been created by the ABP ingest.
@@ -36,14 +36,15 @@ object Repository {
   }
 
   private def ingestorXa(creds: Credentials): Transactor[IO] = {
-    implicit val cs: ContextShift[IO] =
-      IO.contextShift(implicitly[ExecutionContext])
+    val properties = new Properties()
+    properties.setProperty("user", creds.ingestor)
+    properties.setProperty("password", creds.ingestorPassword)
 
     Transactor.fromDriverManager[IO](
       "org.postgresql.Driver",
       s"jdbc:postgresql://${creds.host}:${creds.port}/${creds.database}",
-      creds.ingestor,
-      creds.ingestorPassword
+      properties,
+      None
     )
   }
 
