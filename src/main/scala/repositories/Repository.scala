@@ -1,8 +1,12 @@
 package repositories
 
 import cats.effect.IO
+import com.amazonaws.secretsmanager.caching.SecretCache
 import doobie.Transactor
 import me.lamouri.JCredStash
+import services.SecretsManagerService
+import software.amazon.awssdk.regions.Region
+import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient
 
 import java.util
 import java.util.Properties
@@ -92,42 +96,30 @@ object Repository {
   }
 
   final class RdsCredentials() extends Credentials {
-    private val credStashPrefix = sys.env.getOrElse("CREDSTASH_PREFIX", "")
-
-    private val credstashTableName = "credential-store"
-    private val context: util.Map[String, String] =
-      Map("role" -> "cip_address_search").asJava
-
-    private val lookupContext: util.Map[String, String] =
-      Map("role" -> "address_lookup_file_download").asJava
+    private val awsClientBuilder: SecretsManagerClient = SecretsManagerClient
+      .builder()
+      .region(Region.EU_WEST_2)
+      .build()
+    private val secretsManagerService = new SecretsManagerService(new SecretCache(awsClientBuilder))
 
     private def retrieveCredentials(
-      credential: String,
-      context: util.Map[String, String] = context
-    ) = {
-      val credStash = new JCredStash()
-      credStash.getSecret(credstashTableName, credential, context).trim
+                                     credential: String
+                                   ) = {
+      secretsManagerService.getSecret("rds/cip-address-search-api-rds-cluster/root", credential)
     }
 
-    override def host: String =
-      retrieveCredentials(s"address_search_rds_rw_host")
+    override def host: String = "address_search_rds_host"
 
     override def port: String = "5432"
 
-    override def database: String =
-      retrieveCredentials(s"address_search_rds_database")
+    override def database: String = "addressbasepremium"
 
-    override def ingestor: String =
-      retrieveCredentials(s"address_search_rds_admin_user")
+    override def ingestor: String = retrieveCredentials("username")
 
-    override def ingestorPassword: String =
-      retrieveCredentials(s"address_search_rds_admin_password")
+    override def ingestorPassword: String = retrieveCredentials("password")
 
     override def nonukBucketName: String =
-      retrieveCredentials(
-        s"${credStashPrefix}non_uk_address_lookup_bucket",
-        lookupContext
-      )
+      secretsManagerService.getSecret("attrep-secret/address_lookup_file_download/non_uk_address_lookup_bucket", "secret")
 
     override def nonUkBaseDir: String = "/mnt/efs/international-addresses/"
   }
