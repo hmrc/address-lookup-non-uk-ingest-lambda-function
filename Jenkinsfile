@@ -31,7 +31,7 @@ pipeline {
     }
     stage ('Run cip-attrep-terraform job') {
       steps {
-        build(job: 'attrep/terraform/build-all-environments', wait: false)
+        build(job: 'cir/terraform/attrep/build-all-environments', wait: false)
       }
     }
   }
